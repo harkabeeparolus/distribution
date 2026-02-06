@@ -79,12 +79,10 @@ class Histogram:
         # account logarithmic scale (can humans notice?).
         if s.char_width == 1:
             return_bar += one_char
-        elif s.char_width < 1:
-            # this is high-resolution, so figure out what remainder we
-            # have to represent
-            if remainder_width > s.char_width:
-                which_char = int(remainder_width / s.char_width)
-                return_bar += s.graph_chars[which_char]
+        elif s.char_width < 1 and remainder_width > s.char_width:
+            # high-resolution: figure out what partial-width char to use
+            which_char = int(remainder_width / s.char_width)
+            return_bar += s.graph_chars[which_char]
 
         return return_bar
 
@@ -202,7 +200,7 @@ class InputReader:
         self.token_dict = new_dict
         s.num_prunes += 1
 
-    def tokenize_input(self, s):
+    def tokenize_input(self, s):  # noqa: C901
         """Split stdin lines into tokens and count their frequency.
 
         Splits on whitespace or word boundaries by default, but the user
@@ -230,6 +228,7 @@ class InputReader:
         next_stat = time.time() + s.stat_interval
 
         prune_objects = 0
+        # ruff: disable[PLW2901]
         for line in sys.stdin:
             line = line.rstrip("\n")
             if should_tokenize:
@@ -260,6 +259,7 @@ class InputReader:
                     file=sys.stderr,
                 )
                 next_stat = time.time() + s.stat_interval
+        # ruff: enable[PLW2901]
 
     def read_pretallied_tokens(self, s):
         """Read pre-counted key/value pairs from stdin.
@@ -307,6 +307,7 @@ class InputReader:
         max_width = 0
         sum_val = 0
         out_list = []
+        # ruff: disable[PLW2901]
         for line in sys.stdin:
             try:
                 line = float(line.rstrip())
@@ -330,6 +331,7 @@ class InputReader:
             if s.total_objects > 0:
                 out_list.append(graph_val)
             s.total_objects += 1
+        # ruff: enable[PLW2901]
 
         # simple graphical output
         for k in out_list:
@@ -350,7 +352,7 @@ class InputReader:
 class Settings:
     """Parse config file and command-line arguments into display parameters."""
 
-    def __init__(self):
+    def __init__(self):  # noqa: C901, PLR0912, PLR0915
         """Load defaults, then overlay rcfile and CLI arguments."""
         self.start_time = time.monotonic()
         self.end_time = 0

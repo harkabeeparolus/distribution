@@ -1,3 +1,11 @@
 [lint]
 select = ["ALL"]
-ignore = ["COM812", "D203", "D213", "T20", "ANN", "E501", "TD"]
+ignore = [
+    "ANN",     # type annotations — not used in this project
+    "COM812",  # conflicts with ruff format
+    "D203",    # conflicts with D211
+    "D213",    # conflicts with D212
+    "E501",    # line length — handled by ruff format
+    "T20",     # print statements — this is a CLI tool
+    "TD",      # TODO/FIXME format
+]
