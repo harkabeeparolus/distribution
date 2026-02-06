@@ -1,19 +1,13 @@
 #! /usr/bin/env python3
 
-"""
-Generate Graphs Directly in the (ASCII- or Unicode-based) Terminal
+"""Generate character-based histograms in the terminal.
 
 If you find yourself typing:
-  [long | list | of | commands | sort | uniq -c | sort -rn]
+  long | list | of | commands | sort | uniq -c | sort -rn
 
-Replace:
-  [| sort | uniq -c | sort -rn]
-
-With:
-  [| distribution]
-
-Then bask in the glory of your new-found data visualization. There are other
-use cases as well.
+Replace "sort | uniq -c | sort -rn" with "distribution" and bask in the
+glory of your new-found data visualization. There are other use cases
+as well.
 """
 
 import argparse
@@ -377,22 +371,73 @@ class Settings:
         self.partialLines = ["╸", "╾", "━"]  # char=hl
 
         parser = DistributionParser(
-            fromfile_prefix_chars='@', add_help=False)
-        parser.add_argument('-h', '--help', action='store_true')
-        parser.add_argument('--rcfile', default=None)
-        parser.add_argument('--color', '--colour', action='store_true')
-        parser.add_argument('-g', '--graph', nargs='?', const='vk', default='')
-        parser.add_argument('-l', '--logarithmic', action='store_true')
-        parser.add_argument('-n', '--numonly', nargs='?', const='abs', default=None)
-        parser.add_argument('-v', '--verbose', action='store_true')
-        parser.add_argument('-w', '--width', type=int, default=0)
-        parser.add_argument('-H', '--height', type=int, default=0)
-        parser.add_argument('-k', '--keys', type=int, default=5000)
-        parser.add_argument('-c', '--char', default='-')
-        parser.add_argument('-p', '--palette', default='0,0,32,35,34')
-        parser.add_argument('-s', '--size', default='')
-        parser.add_argument('-t', '--tokenize', default='')
-        parser.add_argument('-m', '--match', default='.')
+            fromfile_prefix_chars='@',
+            prog=scriptName,
+            usage='<commandWithOutput> | %(prog)s [options]',
+            description=__doc__,
+            epilog=(
+                "Samples:\n"
+                "  du -sb /etc/* | %(prog)s --palette=0,37,34,33,32 --graph\n"
+                "  du -sk /etc/* | awk '{print $2\" \"$1}' | %(prog)s --graph=kv\n"
+                "  zcat /var/log/syslog*gz | %(prog)s --char=o --tokenize=white\n"
+                "  zcat /var/log/syslog*gz | awk '{print $5}' | %(prog)s -t word -m word -H 15 -c /\n"
+                "  zcat /var/log/syslog*gz | cut -c 1-9 | %(prog)s --width=60 --height=10 --char=em\n"
+                "  find /etc -type f | cut -c 6- | %(prog)s --tokenize=/ -w 90 -H 35 -c dt\n"
+                "  cat /usr/share/dict/words | awk '{print length($1)}' | %(prog)s -c '*' -w 50 -H 10 | sort -n"
+            ),
+            formatter_class=argparse.RawTextHelpFormatter,
+        )
+        parser.add_argument('--rcfile', default=None, metavar='F',
+                            help='use this rcfile instead of ~/.distributionrc')
+        parser.add_argument('--color', '--colour', action='store_true',
+                            help='colourise the output')
+        parser.add_argument('-g', '--graph', nargs='?', const='vk', default='',
+                            metavar='G',
+                            help='input is already key/value pairs. vk is default:\n'
+                                 '  kv   input is ordered key then value\n'
+                                 '  vk   input is ordered value then key')
+        parser.add_argument('-l', '--logarithmic', action='store_true',
+                            help='logarithmic graph')
+        parser.add_argument('-n', '--numonly', nargs='?', const='abs', default=None,
+                            metavar='N',
+                            help='input is numerics, simply graph values without labels\n'
+                                 '  actual   input is just values (default)\n'
+                                 '  diff     input monotonically-increasing, graph differences')
+        parser.add_argument('-v', '--verbose', action='store_true',
+                            help='be verbose')
+        parser.add_argument('-w', '--width', type=int, default=0, metavar='N',
+                            help='width of the histogram report, overrides --size')
+        parser.add_argument('-H', '--height', type=int, default=0, metavar='N',
+                            help='height of histogram, headers non-inclusive, overrides --size')
+        parser.add_argument('-k', '--keys', type=int, default=5000, metavar='K',
+                            help='prune hash to K keys every %(default)s values (default: %(default)s)')
+        parser.add_argument('-c', '--char', default='-', metavar='C',
+                            help='character(s) to use for histogram bars, or a substitution:\n'
+                                 '  pl   1/3-width unicode partial lines (3x resolution)\n'
+                                 '  pb   1/8-width unicode partial blocks (8x resolution)\n'
+                                 '  ba   (▬) Bar\n'
+                                 '  bl   (Ξ) Building\n'
+                                 '  em   (—) Emdash\n'
+                                 '  me   (⋯) Mid-Elipses\n'
+                                 '  di   (♦) Diamond\n'
+                                 '  dt   (•) Dot\n'
+                                 '  sq   (□) Square')
+        parser.add_argument('-p', '--palette', default='0,0,32,35,34', metavar='P',
+                            help='comma-separated ANSI colour values: regular,key,count,pct,graph\nimplies --color')
+        parser.add_argument('-s', '--size', default='', metavar='S',
+                            help='size of histogram, overridden by --width/--height:\n'
+                                 '  small    60x10\n'
+                                 '  medium   100x20\n'
+                                 '  large    140x35\n'
+                                 '  full     terminal width x terminal height')
+        parser.add_argument('-t', '--tokenize', default='', metavar='RE',
+                            help='split input on regexp RE and make histogram of resulting tokens\n'
+                                 '  word    split on non-word characters\n'
+                                 '  white   split on whitespace')
+        parser.add_argument('-m', '--match', default='.', metavar='RE',
+                            help='only match lines/tokens matching this regexp:\n'
+                                 '  word   tokens/lines must be entirely alphabetic\n'
+                                 '  num    tokens/lines must be entirely numeric')
 
         # Two-pass parsing: first get CLI args (including --rcfile),
         # then layer rcfile defaults underneath CLI args.
@@ -403,10 +448,6 @@ class Settings:
             rcfile = Path.home() / ".distributionrc"
         defaults = [f"@{rcfile}"] if rcfile.is_file() else []
         args = parser.parse_args(namespace=parser.parse_args(defaults))
-
-        if args.help:
-            doUsage(self)
-            sys.exit(0)
 
         self.colourisedOutput = args.color
         self.graphValues = args.graph
@@ -519,69 +560,6 @@ class Settings:
         # detect whether the user has passed a multibyte unicode character directly as the histogram char
         if ord(self.histogramChar[0]) >= 128:
             self.unicodeMode = True
-
-
-def doUsage(s):
-    print(
-        f"""
-usage: <commandWithOutput> | {scriptName}
-         [--rcfile=<rcFile>]
-         [--size={{sm|med|lg|full}} | --width=<width> --height=<height>]
-         [--color] [--palette=r,k,c,p,g]
-         [--tokenize=<tokenChar>]
-         [--graph[=[kv|vk]] [--numonly[=derivative,diff|abs,absolute,actual]]
-         [--char=<barChars>|<substitutionString>]
-         [--help] [--verbose]
-  --keys=K       every {s.keyPruneInterval} values added, prune hash to K keys (default 5000)
-  --char=C       character(s) to use for histogram character, some substitutions follow:
-        pl       Use 1/3-width unicode partial lines to simulate 3x actual terminal width
-        pb       Use 1/8-width unicode partial blocks to simulate 8x actual terminal width
-        ba       (▬) Bar
-        bl       (Ξ) Building
-        em       (—) Emdash
-        me       (⋯) Mid-Elipses
-        di       (♦) Diamond
-        dt       (•) Dot
-        sq       (□) Square
-  --color        colourise the output
-  --graph[=G]    input is already key/value pairs. vk is default:
-        kv       input is ordered key then value
-        vk       input is ordered value then key
-  --height=N     height of histogram, headers non-inclusive, overrides --size
-  --help         get help
-  --logarithmic  logarithmic graph
-  --match=RE     only match lines (or tokens) that match this regexp, some substitutions follow:
-        word     ^[A-Z,a-z]+\\$ - tokens/lines must be entirely alphabetic
-        num      ^\\d+\\$        - tokens/lines must be entirely numeric
-  --numonly[=N]  input is numerics, simply graph values without labels
-        actual   input is just values (default - abs, absolute are synonymous to actual)
-        diff     input monotonically-increasing, graph differences (of 2nd and later values)
-  --palette=P    comma-separated list of ANSI colour values for portions of the output
-                 in this order: regular, key, count, percent, graph. implies --color.
-  --rcfile=F     use this rcfile instead of ~/.distributionrc - must be first argument!
-  --size=S       size of histogram, can abbreviate to single character, overridden by --width/--height
-        small    40x10
-        medium   80x20
-        large    120x30
-        full     terminal width x terminal height (approximately)
-  --tokenize=RE  split input on regexp RE and make histogram of all resulting tokens
-        word     [^\\w] - split on non-word characters like colons, brackets, commas, etc
-        white    \\s    - split on whitespace
-  --width=N      width of the histogram report, N characters, overrides --size
-  --verbose      be verbose
-
-You can use single-characters options, like so: -H25 -w 20 -v
-
-Samples:
-  du -sb /etc/* | {scriptName} --palette=0,37,34,33,32 --graph
-  du -sk /etc/* | awk '{{print $2\" \"$1}}' | {scriptName} --graph=kv
-  zcat /var/log/syslog*gz | {scriptName} --char=o --tokenize=white
-  zcat /var/log/syslog*gz | awk '{{print $5}}'  | {scriptName} -t=word -m-word -h=15 -c=/
-  zcat /var/log/syslog*gz | cut -c 1-9        | {scriptName} -width=60 -height=10 -char=em
-  find /etc -type f       | cut -c 6-         | {scriptName} -tokenize=/ -w=90 -h=35 -c=dt
-  cat /usr/share/dict/words | awk '{{print length($1)}}' | {scriptName} -c=* -w=50 -h=10 | sort -n
-"""
-    )
 
 
 # simple argument parsing and call top-level routines
