@@ -15,15 +15,18 @@ echo "data" | ./distribution.py [options]
 # Run tests (from tests/ directory)
 cd tests && distribution=../distribution.py ./runTests.sh
 
+# Format
+ruff format distribution.py
+
 # Lint
-flake8 distribution.py
+ruff check distribution.py
 ```
 
 Tests are shell-based: each test feeds `stdin.*.txt` files and compares stdout/stderr against `*.expected.txt` files. There are 7 test cases.
 
 ## Linting Configuration
 
-- **flake8**: configured in `.flake8`, ignores E501 (line length) and W503 (line break before binary operator)
+- **ruff format**: configured in `.ruff.toml`, selects ALL rules and then disables some of them
 - **direnv** (`.envrc`): sets `PYTHONDEVMODE=1` and `PYTHONWARNDEFAULTENCODING=1`
 
 ## Architecture
@@ -40,4 +43,4 @@ Everything lives in `distribution.py` (~630 lines), organized into three classes
 
 3. **Histogram** — Renders the visualization. Supports logarithmic scaling, Unicode partial-width characters (1/8 or 1/3 resolution), color palettes via ANSI codes. Headers go to stderr, data to stdout (enabling piping to `sort`).
 
-**Data flow:** `main()` → Settings init → InputReader processes stdin into `tokenDict` (key→count) → Histogram sorts deterministically by (value, key) and renders bars.
+**Data flow:** `main()` → Settings init → InputReader processes stdin into `token_dict` (key→count) → Histogram sorts deterministically by (value, key) and renders bars.

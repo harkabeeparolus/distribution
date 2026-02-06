@@ -22,21 +22,27 @@ from pathlib import Path
 
 class DistributionParser(argparse.ArgumentParser):
     """Strip comments and blank lines from @-included config files."""
+
     def convert_arg_line_to_args(self, arg_line):
+        """Yield non-empty, non-comment lines from config files."""
         stripped = arg_line.strip()
         if stripped and not stripped.startswith("#"):
             yield stripped
 
 
 class Histogram:
-    """
+    """Render a histogram for the highest-frequency entries in a token dict.
+
     Takes the token_dict built in the InputReader class and goes through it,
-    printing a histogram for each of the highest height entries
+    printing a histogram for each of the highest height entries.
     """
 
     def histogram_bar(self, s, hist_width, max_val, bar_val):
-        # given a value and max, return string for histogram bar of the proper
-        # number of characters, including unicode partial-width characters
+        """Return a histogram bar string scaled to the given value.
+
+        Given a value and max, return a string of the proper number of
+        characters, including unicode partial-width characters.
+        """
         return_bar = ""
 
         # first case is partial-width chars
@@ -80,6 +86,7 @@ class Histogram:
         return return_bar
 
     def write_hist(self, s, token_dict):
+        """Sort token_dict by frequency and print a histogram to stdout."""
         max_token_len = 0
         output_dict = {}
 
@@ -95,10 +102,8 @@ class Histogram:
             # off-by-one death the script sometimes suffers without it.
             if k:
                 output_dict[k] = token_dict[k]
-                if len(str(k)) > max_token_len:
-                    max_token_len = len(str(k))
-                if output_dict[k] > max_val:
-                    max_val = output_dict[k]
+                max_token_len = max(max_token_len, len(str(k)))
+                max_val = max(max_val, output_dict[k])
                 num_items += 1
                 if num_items >= s.height:
                     break
@@ -121,7 +126,9 @@ class Histogram:
             if k:
                 if max_value_width == 0:
                     max_value_width = len(str(output_dict[k]))
-                    max_pct_width = len(f"({output_dict[k] / s.total_values * 100:2.2f}%)")
+                    max_pct_width = len(
+                        f"({output_dict[k] / s.total_values * 100:2.2f}%)"
+                    )
 
                     # we always output a single histogram char at the end, so
                     # we output one less than actual number here
@@ -136,10 +143,14 @@ class Histogram:
                     # output a header; key_colour goes on this line so piping
                     # stdout to sort works (no colour prefix on data lines)
                     print(
-                        "Key".rjust(max_token_len) + "|"
-                        + "Ct".ljust(max_value_width) + " "
-                        + "(Pct)".ljust(max_pct_width) + " "
-                        + "Histogram" + s.key_colour,
+                        "Key".rjust(max_token_len)
+                        + "|"
+                        + "Ct".ljust(max_value_width)
+                        + " "
+                        + "(Pct)".ljust(max_pct_width)
+                        + " "
+                        + "Histogram"
+                        + s.key_colour,
                         file=sys.stderr,
                     )
 
@@ -149,25 +160,34 @@ class Histogram:
                 end_colour = s.regular_colour if i == len(keys) - 1 else s.key_colour
                 print(
                     str(k).rjust(max_token_len)
-                    + s.regular_colour + "|" + s.ct_colour
-                    + out_val.rjust(max_value_width) + " "
-                    + s.pct_colour + pct.rjust(max_pct_width) + " "
-                    + s.graph_colour + bar + end_colour
+                    + s.regular_colour
+                    + "|"
+                    + s.ct_colour
+                    + out_val.rjust(max_value_width)
+                    + " "
+                    + s.pct_colour
+                    + pct.rjust(max_pct_width)
+                    + " "
+                    + s.graph_colour
+                    + bar
+                    + end_colour
                 )
 
 
 class InputReader:
-    """
-    Reads stdin, parses it into a dictionary of key and value is number
-    of appearances of that key in the input - this will also prune the
-    token frequency dict on after a certain number of insertions to
-    prevent OOME on large datasets
+    """Read stdin and build a token frequency dict.
+
+    Parses input into a dictionary where each key is a token and the value
+    is its number of appearances. Prunes the dict after a certain number
+    of insertions to prevent OOM on large datasets.
     """
 
     def __init__(self):
+        """Initialize an empty token frequency counter."""
         self.token_dict = Counter()
 
     def prune_keys(self, s):
+        """Keep only the top max_keys entries in the token dict."""
         new_dict = Counter()
         num_keys_transferred = 0
         for k in sorted(self.token_dict, key=self.token_dict.get, reverse=True):
@@ -180,8 +200,12 @@ class InputReader:
         s.num_prunes += 1
 
     def tokenize_input(self, s):
-        # how to split the input... typically we split on whitespace or
-        # word boundaries, but the user can specify any regexp
+        """Split stdin lines into tokens and count their frequency.
+
+        Splits on whitespace or word boundaries by default, but the user
+        can specify any regexp. Likewise, matching defaults to everything
+        but can be restricted to all-alpha or all-numeric tokens.
+        """
         if s.tokenize == "white":
             s.tokenize = r"\s+"
         elif s.tokenize == "word":
@@ -229,22 +253,27 @@ class InputReader:
             if s.verbose and time.time() > next_stat:
                 print(
                     f"tokens/lines examined: {s.total_objects:,d} ; hash prunes: {s.num_prunes:,d}...",
-                    end='\r', file=sys.stderr,
+                    end="\r",
+                    file=sys.stderr,
                 )
                 next_stat = time.time() + s.stat_interval
 
     def read_pretallied_tokens(self, s):
-        # the input is already just a series of keys with the frequency of the
-        # keys precomputed, as in "du -sb" - vk means the number is first, key
-        # second. kv means key first, number second
+        """Read pre-counted key/value pairs from stdin.
+
+        Input is already tallied (as in `du -sb`). vk means the number
+        is first and key second; kv means key first and number second.
+        """
         vk = re.compile(r"^\s*(\d+)\s+(.+)$")
         kv = re.compile(r"^(.+?)\s+(\d+)$")
         if s.graph_values == "vk":
             for line in sys.stdin:
                 m = vk.match(line)
                 if not m:
-                    print(f" E Input malformed+discarded (perhaps pass -g=kv?): {line}",
-                          file=sys.stderr)
+                    print(
+                        f" E Input malformed+discarded (perhaps pass -g=kv?): {line}",
+                        file=sys.stderr,
+                    )
                     continue
                 self.token_dict[m.group(2)] += int(m.group(1))
                 s.total_values += int(m.group(1))
@@ -253,18 +282,23 @@ class InputReader:
             for line in sys.stdin:
                 m = kv.match(line)
                 if not m:
-                    print(f" E Input malformed+discarded (perhaps pass -g=vk?): {line}",
-                          file=sys.stderr)
+                    print(
+                        f" E Input malformed+discarded (perhaps pass -g=vk?): {line}",
+                        file=sys.stderr,
+                    )
                     continue
                 self.token_dict[m.group(1)] += int(m.group(2))
                 s.total_values += int(m.group(2))
                 s.total_objects += 1
 
     def read_numerics(self, s, h):
-        # in this special mode, we print out the histogram here instead
-        # of later - because it's a far simpler histogram without all the
-        # totals, percentages, etc of the real histogram. we're just
-        # showing a graph of a series of numbers
+        """Read raw numbers from stdin and print a simple graph directly.
+
+        Unlike the other modes, output is printed here rather than in
+        Histogram, since it is a simpler graph without totals or
+        percentages — just a bar for each numeric value or its
+        monotonic difference.
+        """
         last_val = 0
         max_val = 0
         max_width = 0
@@ -299,15 +333,22 @@ class InputReader:
             pct = f"({k / sum_val * 100:2.2f}%)"
             bar = h.histogram_bar(s, s.width - 11 - max_width, max_val, k)
             print(
-                s.key_colour + str(int(k)).rjust(max_width)
-                + s.pct_colour + pct.rjust(9) + " "
-                + s.graph_colour + bar
+                s.key_colour
+                + str(int(k)).rjust(max_width)
+                + s.pct_colour
+                + pct.rjust(9)
+                + " "
+                + s.graph_colour
+                + bar
                 + s.regular_colour
             )
 
 
 class Settings:
+    """Parse config file and command-line arguments into display parameters."""
+
     def __init__(self):
+        """Load defaults, then overlay rcfile and CLI arguments."""
         self.start_time = time.monotonic()
         self.end_time = 0
         self.width_arg = 0
@@ -348,9 +389,9 @@ class Settings:
         self.partial_lines = ["╸", "╾", "━"]  # char=hl
 
         parser = DistributionParser(
-            fromfile_prefix_chars='@',
+            fromfile_prefix_chars="@",
             prog=script_name,
-            usage='<commandWithOutput> | %(prog)s [options]',
+            usage="<commandWithOutput> | %(prog)s [options]",
             description=__doc__,
             epilog=(
                 "Samples:\n"
@@ -364,57 +405,117 @@ class Settings:
             ),
             formatter_class=argparse.RawTextHelpFormatter,
         )
-        parser.add_argument('--rcfile', default=None, metavar='F',
-                            help='use this rcfile instead of ~/.distributionrc')
-        parser.add_argument('--color', '--colour', action='store_true',
-                            help='colourise the output')
-        parser.add_argument('-g', '--graph', nargs='?', const='vk', default='',
-                            metavar='G',
-                            help='input is already key/value pairs. vk is default:\n'
-                                 '  kv   input is ordered key then value\n'
-                                 '  vk   input is ordered value then key')
-        parser.add_argument('-l', '--logarithmic', action='store_true',
-                            help='logarithmic graph')
-        parser.add_argument('-n', '--numonly', nargs='?', const='abs', default=None,
-                            metavar='N',
-                            help='input is numerics, simply graph values without labels\n'
-                                 '  actual   input is just values (default)\n'
-                                 '  diff     input monotonically-increasing, graph differences')
-        parser.add_argument('-v', '--verbose', action='store_true',
-                            help='be verbose')
-        parser.add_argument('-w', '--width', type=int, default=0, metavar='N',
-                            help='width of the histogram report, overrides --size')
-        parser.add_argument('-H', '--height', type=int, default=0, metavar='N',
-                            help='height of histogram, headers non-inclusive, overrides --size')
-        parser.add_argument('-k', '--keys', type=int, default=5000, metavar='K',
-                            help='prune hash to K keys every %(default)s values (default: %(default)s)')
-        parser.add_argument('-c', '--char', default='-', metavar='C',
-                            help='character(s) to use for histogram bars, or a substitution:\n'
-                                 '  pl   1/3-width unicode partial lines (3x resolution)\n'
-                                 '  pb   1/8-width unicode partial blocks (8x resolution)\n'
-                                 '  ba   (▬) Bar\n'
-                                 '  bl   (Ξ) Building\n'
-                                 '  em   (—) Emdash\n'
-                                 '  me   (⋯) Mid-Elipses\n'
-                                 '  di   (♦) Diamond\n'
-                                 '  dt   (•) Dot\n'
-                                 '  sq   (□) Square')
-        parser.add_argument('-p', '--palette', default='0,0,32,35,34', metavar='P',
-                            help='comma-separated ANSI colour values: regular,key,count,pct,graph\nimplies --color')
-        parser.add_argument('-s', '--size', default='', metavar='S',
-                            help='size of histogram, overridden by --width/--height:\n'
-                                 '  small    60x10\n'
-                                 '  medium   100x20\n'
-                                 '  large    140x35\n'
-                                 '  full     terminal width x terminal height')
-        parser.add_argument('-t', '--tokenize', default='', metavar='RE',
-                            help='split input on regexp RE and make histogram of resulting tokens\n'
-                                 '  word    split on non-word characters\n'
-                                 '  white   split on whitespace')
-        parser.add_argument('-m', '--match', default='.', metavar='RE',
-                            help='only match lines/tokens matching this regexp:\n'
-                                 '  word   tokens/lines must be entirely alphabetic\n'
-                                 '  num    tokens/lines must be entirely numeric')
+        parser.add_argument(
+            "--rcfile",
+            default=None,
+            metavar="F",
+            help="use this rcfile instead of ~/.distributionrc",
+        )
+        parser.add_argument(
+            "--color", "--colour", action="store_true", help="colourise the output"
+        )
+        parser.add_argument(
+            "-g",
+            "--graph",
+            nargs="?",
+            const="vk",
+            default="",
+            metavar="G",
+            help="input is already key/value pairs. vk is default:\n"
+            "  kv   input is ordered key then value\n"
+            "  vk   input is ordered value then key",
+        )
+        parser.add_argument(
+            "-l", "--logarithmic", action="store_true", help="logarithmic graph"
+        )
+        parser.add_argument(
+            "-n",
+            "--numonly",
+            nargs="?",
+            const="abs",
+            default=None,
+            metavar="N",
+            help="input is numerics, simply graph values without labels\n"
+            "  actual   input is just values (default)\n"
+            "  diff     input monotonically-increasing, graph differences",
+        )
+        parser.add_argument("-v", "--verbose", action="store_true", help="be verbose")
+        parser.add_argument(
+            "-w",
+            "--width",
+            type=int,
+            default=0,
+            metavar="N",
+            help="width of the histogram report, overrides --size",
+        )
+        parser.add_argument(
+            "-H",
+            "--height",
+            type=int,
+            default=0,
+            metavar="N",
+            help="height of histogram, headers non-inclusive, overrides --size",
+        )
+        parser.add_argument(
+            "-k",
+            "--keys",
+            type=int,
+            default=5000,
+            metavar="K",
+            help="prune hash to K keys every %(default)s values (default: %(default)s)",
+        )
+        parser.add_argument(
+            "-c",
+            "--char",
+            default="-",
+            metavar="C",
+            help="character(s) to use for histogram bars, or a substitution:\n"
+            "  pl   1/3-width unicode partial lines (3x resolution)\n"
+            "  pb   1/8-width unicode partial blocks (8x resolution)\n"
+            "  ba   (▬) Bar\n"
+            "  bl   (Ξ) Building\n"
+            "  em   (—) Emdash\n"
+            "  me   (⋯) Mid-Elipses\n"
+            "  di   (♦) Diamond\n"
+            "  dt   (•) Dot\n"
+            "  sq   (□) Square",
+        )
+        parser.add_argument(
+            "-p",
+            "--palette",
+            default="0,0,32,35,34",
+            metavar="P",
+            help="comma-separated ANSI colour values: regular,key,count,pct,graph\nimplies --color",
+        )
+        parser.add_argument(
+            "-s",
+            "--size",
+            default="",
+            metavar="S",
+            help="size of histogram, overridden by --width/--height:\n"
+            "  small    60x10\n"
+            "  medium   100x20\n"
+            "  large    140x35\n"
+            "  full     terminal width x terminal height",
+        )
+        parser.add_argument(
+            "-t",
+            "--tokenize",
+            default="",
+            metavar="RE",
+            help="split input on regexp RE and make histogram of resulting tokens\n"
+            "  word    split on non-word characters\n"
+            "  white   split on whitespace",
+        )
+        parser.add_argument(
+            "-m",
+            "--match",
+            default=".",
+            metavar="RE",
+            help="only match lines/tokens matching this regexp:\n"
+            "  word   tokens/lines must be entirely alphabetic\n"
+            "  num    tokens/lines must be entirely numeric",
+        )
 
         # Two-pass parsing: first get CLI args (including --rcfile),
         # then layer rcfile defaults underneath CLI args.
@@ -439,14 +540,20 @@ class Settings:
         self.tokenize = args.tokenize
         self.match_regexp = args.match
         self.colour_palette = args.palette
-        if args.palette != '0,0,32,35,34':
+        if args.palette != "0,0,32,35,34":
             self.colourised_output = True
 
         # first, size, which might be further overridden by width/height later
         size_presets = {
-            "small": (60, 10), "sm": (60, 10), "s": (60, 10),
-            "medium": (100, 20), "med": (100, 20), "m": (100, 20),
-            "large": (140, 35), "lg": (140, 35), "l": (140, 35),
+            "small": (60, 10),
+            "sm": (60, 10),
+            "s": (60, 10),
+            "medium": (100, 20),
+            "med": (100, 20),
+            "m": (100, 20),
+            "large": (140, 35),
+            "lg": (140, 35),
+            "l": (140, 35),
         }
         if self.size in ("full", "fl", "f"):
             self.width, self.height = shutil.get_terminal_size()
@@ -482,7 +589,10 @@ class Settings:
         if self.max_keys < self.height + 3000:
             self.max_keys = self.height + 3000
             if self.verbose:
-                print(f"Updated max_keys to {self.max_keys} (height + 3000)", file=sys.stderr)
+                print(
+                    f"Updated max_keys to {self.max_keys} (height + 3000)",
+                    file=sys.stderr,
+                )
 
         # colour palette
         if self.colourised_output:
@@ -501,8 +611,13 @@ class Settings:
 
         # some useful ASCII-->utf-8 substitutions
         char_substitutions = {
-            "ba": "▬", "bl": "Ξ", "em": "—", "me": "⋯",
-            "di": "♦", "dt": "•", "sq": "□",
+            "ba": "▬",
+            "bl": "Ξ",
+            "em": "—",
+            "me": "⋯",
+            "di": "♦",
+            "dt": "•",
+            "sq": "□",
         }
         if self.histogram_char in char_substitutions:
             self.unicode_mode = True
@@ -521,9 +636,8 @@ class Settings:
             self.unicode_mode = True
 
 
-# simple argument parsing and call top-level routines
 def main():
-    # instantiate our classes
+    """Parse arguments, read stdin, and render the histogram."""
     s = Settings()
     i = InputReader()
     h = Histogram()
