@@ -349,6 +349,156 @@ class InputReader:
             )
 
 
+def _build_parser():
+    """Build the argument parser with all options defined."""
+    parser = DistributionParser(
+        fromfile_prefix_chars="@",
+        prog=script_name,
+        usage="<commandWithOutput> | %(prog)s [options]",
+        description=__doc__,
+        epilog=(
+            "Samples:\n"
+            "  du -sb /etc/* | %(prog)s --palette=0,37,34,33,32 --graph\n"
+            "  du -sk /etc/* | awk '{print $2\" \"$1}' | %(prog)s --graph=kv\n"
+            "  zcat /var/log/syslog*gz | %(prog)s --char=o --tokenize=white\n"
+            "  zcat /var/log/syslog*gz | awk '{print $5}' | %(prog)s -t word -m word -H 15 -c /\n"
+            "  zcat /var/log/syslog*gz | cut -c 1-9 | %(prog)s --width=60 --height=10 --char=em\n"
+            "  find /etc -type f | cut -c 6- | %(prog)s --tokenize=/ -w 90 -H 35 -c dt\n"
+            "  cat /usr/share/dict/words | awk '{print length($1)}' | %(prog)s -c '*' -w 50 -H 10 | sort -n"
+        ),
+        formatter_class=argparse.RawTextHelpFormatter,
+    )
+    parser.add_argument(
+        "--rcfile",
+        default=None,
+        metavar="F",
+        help="use this rcfile instead of ~/.distributionrc",
+    )
+    parser.add_argument(
+        "--color", "--colour", action="store_true", help="colourise the output"
+    )
+    parser.add_argument(
+        "-g",
+        "--graph",
+        nargs="?",
+        const="vk",
+        default="",
+        metavar="G",
+        help="input is already key/value pairs. vk is default:\n"
+        "  kv   input is ordered key then value\n"
+        "  vk   input is ordered value then key",
+    )
+    parser.add_argument(
+        "-l", "--logarithmic", action="store_true", help="logarithmic graph"
+    )
+    parser.add_argument(
+        "-n",
+        "--numonly",
+        nargs="?",
+        const="abs",
+        default=None,
+        metavar="N",
+        help="input is numerics, simply graph values without labels\n"
+        "  actual   input is just values (default)\n"
+        "  diff     input monotonically-increasing, graph differences",
+    )
+    parser.add_argument("-v", "--verbose", action="store_true", help="be verbose")
+    parser.add_argument(
+        "-w",
+        "--width",
+        type=int,
+        default=0,
+        metavar="N",
+        help="width of the histogram report, overrides --size",
+    )
+    parser.add_argument(
+        "-H",
+        "--height",
+        type=int,
+        default=0,
+        metavar="N",
+        help="height of histogram, headers non-inclusive, overrides --size",
+    )
+    parser.add_argument(
+        "-k",
+        "--keys",
+        type=int,
+        default=DEFAULT_MAX_KEYS,
+        metavar="K",
+        help="prune hash to K keys every %(default)s values (default: %(default)s)",
+    )
+    parser.add_argument(
+        "-c",
+        "--char",
+        default="-",
+        metavar="C",
+        help="character(s) to use for histogram bars, or a substitution:\n"
+        "  pl   1/3-width unicode partial lines (3x resolution)\n"
+        "  pb   1/8-width unicode partial blocks (8x resolution)\n"
+        "  ba   (▬) Bar\n"
+        "  bl   (Ξ) Building\n"
+        "  em   (—) Emdash\n"
+        "  me   (⋯) Mid-Elipses\n"
+        "  di   (♦) Diamond\n"
+        "  dt   (•) Dot\n"
+        "  sq   (□) Square",
+    )
+    parser.add_argument(
+        "-p",
+        "--palette",
+        default=DEFAULT_PALETTE,
+        metavar="P",
+        help="comma-separated ANSI colour values: regular,key,count,pct,graph\nimplies --color",
+    )
+    parser.add_argument(
+        "-s",
+        "--size",
+        default="",
+        metavar="S",
+        help="size of histogram, overridden by --width/--height:\n"
+        "  small    60x10\n"
+        "  medium   100x20\n"
+        "  large    140x35\n"
+        "  full     terminal width x terminal height",
+    )
+    parser.add_argument(
+        "-t",
+        "--tokenize",
+        default="",
+        metavar="RE",
+        help="split input on regexp RE and make histogram of resulting tokens\n"
+        "  word    split on non-word characters\n"
+        "  white   split on whitespace",
+    )
+    parser.add_argument(
+        "-m",
+        "--match",
+        default=".",
+        metavar="RE",
+        help="only match lines/tokens matching this regexp:\n"
+        "  word   tokens/lines must be entirely alphabetic\n"
+        "  num    tokens/lines must be entirely numeric",
+    )
+    return parser
+
+
+def _parse_args():
+    """Run two-pass parsing: CLI args first, then rcfile defaults underneath.
+
+    If --rcfile is given, use that file; otherwise fall back to
+    ~/.distributionrc.  The rcfile is read as a set of defaults that
+    CLI arguments override.
+    """
+    parser = _build_parser()
+    first_pass = parser.parse_args()
+    if first_pass.rcfile is not None:
+        rcfile = Path(first_pass.rcfile).expanduser()
+    else:
+        rcfile = Path.home() / ".distributionrc"
+    defaults = [f"@{rcfile}"] if rcfile.is_file() else []
+    return parser.parse_args(namespace=parser.parse_args(defaults))
+
+
 class Settings:
     """Parse config file and command-line arguments into display parameters."""
 
@@ -392,144 +542,7 @@ class Settings:
         self.partial_blocks = ["▏", "▎", "▍", "▌", "▋", "▊", "▉", "█"]  # char=pb
         self.partial_lines = ["╸", "╾", "━"]  # char=hl
 
-        parser = DistributionParser(
-            fromfile_prefix_chars="@",
-            prog=script_name,
-            usage="<commandWithOutput> | %(prog)s [options]",
-            description=__doc__,
-            epilog=(
-                "Samples:\n"
-                "  du -sb /etc/* | %(prog)s --palette=0,37,34,33,32 --graph\n"
-                "  du -sk /etc/* | awk '{print $2\" \"$1}' | %(prog)s --graph=kv\n"
-                "  zcat /var/log/syslog*gz | %(prog)s --char=o --tokenize=white\n"
-                "  zcat /var/log/syslog*gz | awk '{print $5}' | %(prog)s -t word -m word -H 15 -c /\n"
-                "  zcat /var/log/syslog*gz | cut -c 1-9 | %(prog)s --width=60 --height=10 --char=em\n"
-                "  find /etc -type f | cut -c 6- | %(prog)s --tokenize=/ -w 90 -H 35 -c dt\n"
-                "  cat /usr/share/dict/words | awk '{print length($1)}' | %(prog)s -c '*' -w 50 -H 10 | sort -n"
-            ),
-            formatter_class=argparse.RawTextHelpFormatter,
-        )
-        parser.add_argument(
-            "--rcfile",
-            default=None,
-            metavar="F",
-            help="use this rcfile instead of ~/.distributionrc",
-        )
-        parser.add_argument(
-            "--color", "--colour", action="store_true", help="colourise the output"
-        )
-        parser.add_argument(
-            "-g",
-            "--graph",
-            nargs="?",
-            const="vk",
-            default="",
-            metavar="G",
-            help="input is already key/value pairs. vk is default:\n"
-            "  kv   input is ordered key then value\n"
-            "  vk   input is ordered value then key",
-        )
-        parser.add_argument(
-            "-l", "--logarithmic", action="store_true", help="logarithmic graph"
-        )
-        parser.add_argument(
-            "-n",
-            "--numonly",
-            nargs="?",
-            const="abs",
-            default=None,
-            metavar="N",
-            help="input is numerics, simply graph values without labels\n"
-            "  actual   input is just values (default)\n"
-            "  diff     input monotonically-increasing, graph differences",
-        )
-        parser.add_argument("-v", "--verbose", action="store_true", help="be verbose")
-        parser.add_argument(
-            "-w",
-            "--width",
-            type=int,
-            default=0,
-            metavar="N",
-            help="width of the histogram report, overrides --size",
-        )
-        parser.add_argument(
-            "-H",
-            "--height",
-            type=int,
-            default=0,
-            metavar="N",
-            help="height of histogram, headers non-inclusive, overrides --size",
-        )
-        parser.add_argument(
-            "-k",
-            "--keys",
-            type=int,
-            default=DEFAULT_MAX_KEYS,
-            metavar="K",
-            help="prune hash to K keys every %(default)s values (default: %(default)s)",
-        )
-        parser.add_argument(
-            "-c",
-            "--char",
-            default="-",
-            metavar="C",
-            help="character(s) to use for histogram bars, or a substitution:\n"
-            "  pl   1/3-width unicode partial lines (3x resolution)\n"
-            "  pb   1/8-width unicode partial blocks (8x resolution)\n"
-            "  ba   (▬) Bar\n"
-            "  bl   (Ξ) Building\n"
-            "  em   (—) Emdash\n"
-            "  me   (⋯) Mid-Elipses\n"
-            "  di   (♦) Diamond\n"
-            "  dt   (•) Dot\n"
-            "  sq   (□) Square",
-        )
-        parser.add_argument(
-            "-p",
-            "--palette",
-            default=DEFAULT_PALETTE,
-            metavar="P",
-            help="comma-separated ANSI colour values: regular,key,count,pct,graph\nimplies --color",
-        )
-        parser.add_argument(
-            "-s",
-            "--size",
-            default="",
-            metavar="S",
-            help="size of histogram, overridden by --width/--height:\n"
-            "  small    60x10\n"
-            "  medium   100x20\n"
-            "  large    140x35\n"
-            "  full     terminal width x terminal height",
-        )
-        parser.add_argument(
-            "-t",
-            "--tokenize",
-            default="",
-            metavar="RE",
-            help="split input on regexp RE and make histogram of resulting tokens\n"
-            "  word    split on non-word characters\n"
-            "  white   split on whitespace",
-        )
-        parser.add_argument(
-            "-m",
-            "--match",
-            default=".",
-            metavar="RE",
-            help="only match lines/tokens matching this regexp:\n"
-            "  word   tokens/lines must be entirely alphabetic\n"
-            "  num    tokens/lines must be entirely numeric",
-        )
-
-        # Two-pass parsing: first get CLI args (including --rcfile),
-        # then layer rcfile defaults underneath CLI args.
-        first_pass = parser.parse_args()
-        if first_pass.rcfile is not None:
-            rcfile = Path(first_pass.rcfile).expanduser()
-        else:
-            rcfile = Path.home() / ".distributionrc"
-        defaults = [f"@{rcfile}"] if rcfile.is_file() else []
-        args = parser.parse_args(namespace=parser.parse_args(defaults))
+        args = _parse_args()
 
         self.colourised_output = args.color
         self.graph_values = args.graph
