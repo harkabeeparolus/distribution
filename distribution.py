@@ -16,12 +16,21 @@ Then bask in the glory of your new-found data visualization. There are other
 use cases as well.
 """
 
+import argparse
 import math
 import re
 import shutil
 import sys
 import time
 from pathlib import Path
+
+
+class DistributionParser(argparse.ArgumentParser):
+    """Strip comments and blank lines from @-included config files."""
+    def convert_arg_line_to_args(self, arg_line):
+        stripped = arg_line.strip()
+        if stripped and not stripped.startswith("#"):
+            yield stripped
 
 
 class Histogram:
@@ -367,64 +376,53 @@ class Settings:
         self.partialBlocks = ["▏", "▎", "▍", "▌", "▋", "▊", "▉", "█"]  # char=pb
         self.partialLines = ["╸", "╾", "━"]  # char=hl
 
-        # rcfile grabbing/parsing if specified
-        if len(sys.argv) > 1 and "--rcfile" in sys.argv[1]:
-            rcFile = Path(sys.argv[1].split("=")[1]).expanduser()
+        parser = DistributionParser(
+            fromfile_prefix_chars='@', add_help=False)
+        parser.add_argument('-h', '--help', action='store_true')
+        parser.add_argument('--rcfile', default=None)
+        parser.add_argument('--color', '--colour', action='store_true')
+        parser.add_argument('-g', '--graph', nargs='?', const='vk', default='')
+        parser.add_argument('-l', '--logarithmic', action='store_true')
+        parser.add_argument('-n', '--numonly', nargs='?', const='abs', default=None)
+        parser.add_argument('-v', '--verbose', action='store_true')
+        parser.add_argument('-w', '--width', type=int, default=0)
+        parser.add_argument('-H', '--height', type=int, default=0)
+        parser.add_argument('-k', '--keys', type=int, default=5000)
+        parser.add_argument('-c', '--char', default='-')
+        parser.add_argument('-p', '--palette', default='0,0,32,35,34')
+        parser.add_argument('-s', '--size', default='')
+        parser.add_argument('-t', '--tokenize', default='')
+        parser.add_argument('-m', '--match', default='.')
+
+        # Two-pass parsing: first get CLI args (including --rcfile),
+        # then layer rcfile defaults underneath CLI args.
+        first_pass = parser.parse_args()
+        if first_pass.rcfile is not None:
+            rcfile = Path(first_pass.rcfile).expanduser()
         else:
-            rcFile = Path.home() / ".distributionrc"
+            rcfile = Path.home() / ".distributionrc"
+        defaults = [f"@{rcfile}"] if rcfile.is_file() else []
+        args = parser.parse_args(namespace=parser.parse_args(defaults))
 
-        # parse opts from the rcFile if it exists
-        try:
-            with open(rcFile) as f:
-                rcfileOptList = f.readlines()
-                for rcOpt in rcfileOptList:
-                    rcOpt = rcOpt.rstrip().split("#")[0]
-                    if rcOpt:
-                        sys.argv.insert(0, rcOpt)
-        except OSError:
-            # don't die or in fact do anything if rcfile doesn't exist
-            pass
+        if args.help:
+            doUsage(self)
+            sys.exit(0)
 
-        # manual argument parsing easier than getopts IMO
-        for arg in sys.argv:
-            if arg in ("-h", "--help"):
-                doUsage(self)
-                sys.exit(0)
-            elif arg in ("-c", "--color", "--colour"):
-                self.colourisedOutput = True
-            elif arg in ("-g", "--graph"):
-                # can pass --graph without option, will default to value/key ordering
-                # since Unix prefers that for piping-to-sort reasons
-                self.graphValues = "vk"
-            elif arg in ("-l", "--logarithmic"):
-                self.logarithmic = True
-            elif arg in ("-n", "--numonly"):
-                self.numOnly = "abs"
-            elif arg in ("-v", "--verbose"):
-                self.verbose = True
-            else:
-                argList = arg.split("=", 1)
-                if argList[0] in ("-w", "--width"):
-                    self.widthArg = int(argList[1])
-                elif argList[0] in ("-h", "--height"):
-                    self.heightArg = int(argList[1])
-                elif argList[0] in ("-k", "--keys"):
-                    self.maxKeys = int(argList[1])
-                elif argList[0] in ("-c", "--char"):
-                    self.histogramChar = argList[1]
-                elif argList[0] in ("-g", "--graph"):
-                    self.graphValues = argList[1]
-                elif argList[0] in ("-n", "--numonly"):
-                    self.numOnly = argList[1]
-                elif argList[0] in ("-p", "--palette"):
-                    self.colourPalette = argList[1]
-                    self.colourisedOutput = True
-                elif argList[0] in ("-s", "--size"):
-                    self.size = argList[1]
-                elif argList[0] in ("-t", "--tokenize"):
-                    self.tokenize = argList[1]
-                elif argList[0] in ("-m", "--match"):
-                    self.matchRegexp = argList[1]
+        self.colourisedOutput = args.color
+        self.graphValues = args.graph
+        self.logarithmic = args.logarithmic
+        self.numOnly = args.numonly
+        self.verbose = args.verbose
+        self.widthArg = args.width
+        self.heightArg = args.height
+        self.maxKeys = args.keys
+        self.histogramChar = args.char
+        self.size = args.size
+        self.tokenize = args.tokenize
+        self.matchRegexp = args.match
+        self.colourPalette = args.palette
+        if args.palette != '0,0,32,35,34':
+            self.colourisedOutput = True
 
         # first, size, which might be further overridden by width/height later
         if self.size in ("full", "fl", "f"):
@@ -572,7 +570,7 @@ usage: <commandWithOutput> | {scriptName}
   --width=N      width of the histogram report, N characters, overrides --size
   --verbose      be verbose
 
-You can use single-characters options, like so: -h=25 -w=20 -v. You must still include the =
+You can use single-characters options, like so: -H25 -w 20 -v
 
 Samples:
   du -sb /etc/* | {scriptName} --palette=0,37,34,33,32 --graph
