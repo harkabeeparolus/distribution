@@ -19,6 +19,9 @@ import time
 from collections import Counter
 from pathlib import Path
 
+DEFAULT_PALETTE = "0,0,32,35,34"
+DEFAULT_MAX_KEYS = 5000
+
 
 class DistributionParser(argparse.ArgumentParser):
     """Strip comments and blank lines from @-included config files."""
@@ -48,7 +51,7 @@ class Histogram:
         # first case is partial-width chars
         if s.char_width < 1:
             zero_char = s.graph_chars[-1]
-        elif len(s.histogram_char) > 1 and not s.unicode_mode:
+        elif len(s.histogram_char) > 1:
             zero_char = s.histogram_char[0]
             one_char = s.histogram_char[1]
         else:
@@ -72,7 +75,7 @@ class Histogram:
         # we have full-width chars, then just print it, otherwise do a
         # calculation of how much remainder we need to print
         #
-        # FIXME: The remainder partial char printed does not take into
+        # FIXME: The remainder partial char printed does not take into  # noqa: FIX001
         # account logarithmic scale (can humans notice?).
         if s.char_width == 1:
             return_bar += one_char
@@ -369,7 +372,7 @@ class Settings:
         self.stat_interval = 1.0
         self.num_prunes = 0
         # for colourised output
-        self.colour_palette = "0,0,32,35,34"
+        self.colour_palette = DEFAULT_PALETTE
         self.regular_colour = ""
         self.key_colour = ""
         self.ct_colour = ""
@@ -380,9 +383,8 @@ class Settings:
         self.total_values = 0
         # every key_prune_interval keys, prune the hash to max_keys top keys
         self.key_prune_interval = 1500000
-        self.max_keys = 5000
+        self.max_keys = DEFAULT_MAX_KEYS
         # for advanced graphing
-        self.unicode_mode = False
         self.char_width = 1
         self.graph_chars = []
         self.partial_blocks = ["▏", "▎", "▍", "▌", "▋", "▊", "▉", "█"]  # char=pb
@@ -460,7 +462,7 @@ class Settings:
             "-k",
             "--keys",
             type=int,
-            default=5000,
+            default=DEFAULT_MAX_KEYS,
             metavar="K",
             help="prune hash to K keys every %(default)s values (default: %(default)s)",
         )
@@ -483,7 +485,7 @@ class Settings:
         parser.add_argument(
             "-p",
             "--palette",
-            default="0,0,32,35,34",
+            default=DEFAULT_PALETTE,
             metavar="P",
             help="comma-separated ANSI colour values: regular,key,count,pct,graph\nimplies --color",
         )
@@ -540,21 +542,18 @@ class Settings:
         self.tokenize = args.tokenize
         self.match_regexp = args.match
         self.colour_palette = args.palette
-        if args.palette != "0,0,32,35,34":
+        if args.palette != DEFAULT_PALETTE:
             self.colourised_output = True
 
         # first, size, which might be further overridden by width/height later
-        size_presets = {
-            "small": (60, 10),
-            "sm": (60, 10),
-            "s": (60, 10),
-            "medium": (100, 20),
-            "med": (100, 20),
-            "m": (100, 20),
-            "large": (140, 35),
-            "lg": (140, 35),
-            "l": (140, 35),
-        }
+        size_presets = {}
+        for names, dims in [
+            (("small", "sm", "s"), (60, 10)),
+            (("medium", "med", "m"), (100, 20)),
+            (("large", "lg", "l"), (140, 35)),
+        ]:
+            for name in names:
+                size_presets[name] = dims
         if self.size in ("full", "fl", "f"):
             self.width, self.height = shutil.get_terminal_size()
             self.width = int(self.width)
@@ -620,7 +619,6 @@ class Settings:
             "sq": "□",
         }
         if self.histogram_char in char_substitutions:
-            self.unicode_mode = True
             self.histogram_char = char_substitutions[self.histogram_char]
 
         # sub-full character width graphing systems
@@ -630,10 +628,6 @@ class Settings:
         elif self.histogram_char == "pl":
             self.char_width = 0.3334
             self.graph_chars = self.partial_lines
-
-        # detect whether the user has passed a multibyte unicode character directly as the histogram char
-        if ord(self.histogram_char[0]) >= 128:
-            self.unicode_mode = True
 
 
 def main():
