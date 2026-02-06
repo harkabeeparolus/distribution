@@ -17,7 +17,6 @@ use cases as well.
 """
 
 import math
-import os
 import re
 import shutil
 import sys
@@ -30,9 +29,6 @@ class Histogram:
     Takes the tokenDict built in the InputReader class and goes through it,
     printing a histogram for each of the highest height entries
     """
-
-    def __init__(self):
-        pass
 
     def histogram_bar(self, s, histWidth, maxVal, barVal):
         # given a value and max, return string for histogram bar of the proper
@@ -56,8 +52,8 @@ class Histogram:
             intWidth = int(barLog / maxLog * histWidth)
             remainderWidth = (barLog / maxLog * histWidth) - intWidth
         else:
-            intWidth = int(barVal * 1.0 / maxVal * histWidth)
-            remainderWidth = (barVal * 1.0 / maxVal * histWidth) - intWidth
+            intWidth = int(barVal / maxVal * histWidth)
+            remainderWidth = (barVal / maxVal * histWidth) - intWidth
 
         # write the zeroeth character intWidth times...
         returnBar += zeroChar * intWidth
@@ -117,18 +113,15 @@ class Histogram:
         # the first entry will determine these values
         maxValueWidth = 0
         maxPctWidth = 0
-        sortedOutput = sorted(
-            outputDict, key=value_key_compare(outputDict), reverse=True
-        )
-        for i in range(0, len(sortedOutput)):
-            k = sortedOutput[i]
+        keys = list(outputDict)
+        for i, k in enumerate(keys):
             # can't remember what feature "if k:" adds - i think there's an
             # off-by-one death the script sometimes suffers without it.
             if k:
                 if maxValueWidth == 0:
                     testString = f"{outputDict[k]}"
                     maxValueWidth = len(testString)
-                    testString = f"({outputDict[k] * 1.0 / s.totalValues * 100:2.2f}%)"
+                    testString = f"({outputDict[k] / s.totalValues * 100:2.2f}%)"
                     maxPctWidth = len(testString)
 
                     # we always output a single histogram char at the end, so
@@ -160,7 +153,7 @@ class Histogram:
                 outVal = f"{outputDict[k]}"
                 sys.stdout.write(outVal.rjust(maxValueWidth) + " ")
 
-                pct = f"({outputDict[k] * 1.0 / s.totalValues * 100:2.2f}%)"
+                pct = f"({outputDict[k] / s.totalValues * 100:2.2f}%)"
                 sys.stdout.write(s.pctColour)
                 sys.stdout.write(pct.rjust(maxPctWidth) + " ")
 
@@ -169,7 +162,7 @@ class Histogram:
                     self.histogram_bar(s, histWidth, maxVal, outputDict[k])
                 )
 
-                if i == len(sortedOutput) - 1:
+                if i == len(keys) - 1:
                     # put the terminal back into a normal-colour mode on last entry
                     sys.stdout.write(s.regularColour)
                 else:
@@ -219,6 +212,7 @@ class InputReader:
 
         # docs say these are cached, but i got about 2x speed boost
         # from doing the compile
+        shouldTokenize = bool(s.tokenize)
         pt = re.compile(s.tokenize)
         pm = re.compile(s.matchRegexp)
 
@@ -227,27 +221,21 @@ class InputReader:
         pruneObjects = 0
         for line in sys.stdin:
             line = line.rstrip("\n")
-            if s.tokenize:
+            if shouldTokenize:
                 for token in pt.split(line):
                     # user desires to break line into tokens...
                     s.totalObjects += 1
                     if pm.match(token):
                         s.totalValues += 1
                         pruneObjects += 1
-                        if token in self.tokenDict:
-                            self.tokenDict[token] += 1
-                        else:
-                            self.tokenDict[token] = 1
+                        self.tokenDict[token] = self.tokenDict.get(token, 0) + 1
             else:
                 # user just wants every line to be a token
                 s.totalObjects += 1
                 if pm.match(line):
                     s.totalValues += 1
                     pruneObjects += 1
-                    if line in self.tokenDict:
-                        self.tokenDict[line] += 1
-                    else:
-                        self.tokenDict[line] = 1
+                    self.tokenDict[line] = self.tokenDict.get(line, 0) + 1
 
             # prune the hash if it gets too large
             if pruneObjects >= s.keyPruneInterval:
@@ -256,8 +244,7 @@ class InputReader:
 
             if s.verbose and time.time() > nextStat:
                 sys.stderr.write(
-                    f"tokens/lines examined: {s.totalObjects:,d} ; hash prunes: {s.numPrunes:,d}..."
-                    + chr(13)
+                    f"tokens/lines examined: {s.totalObjects:,d} ; hash prunes: {s.numPrunes:,d}...\r"
                 )
                 nextStat = time.time() + s.statInterval
 
@@ -270,31 +257,25 @@ class InputReader:
         if s.graphValues == "vk":
             for line in sys.stdin:
                 m = vk.match(line)
-                try:
-                    if m.group(2) in self.tokenDict:
-                        self.tokenDict[m.group(2)] += int(m.group(1))
-                    else:
-                        self.tokenDict[m.group(2)] = int(m.group(1))
-                    s.totalValues += int(m.group(1))
-                    s.totalObjects += 1
-                except Exception:
+                if not m:
                     sys.stderr.write(
                         f" E Input malformed+discarded (perhaps pass -g=kv?): {line}\n"
                     )
+                    continue
+                self.tokenDict[m.group(2)] = self.tokenDict.get(m.group(2), 0) + int(m.group(1))
+                s.totalValues += int(m.group(1))
+                s.totalObjects += 1
         elif s.graphValues == "kv":
             for line in sys.stdin:
                 m = kv.match(line)
-                try:
-                    if m.group(1) in self.tokenDict:
-                        self.tokenDict[m.group(1)] += int(m.group(2))
-                    else:
-                        self.tokenDict[m.group(1)] = int(m.group(2))
-                    s.totalValues += int(m.group(2))
-                    s.totalObjects += 1
-                except Exception:
+                if not m:
                     sys.stderr.write(
                         f" E Input malformed+discarded (perhaps pass -g=vk?): {line}\n"
                     )
+                    continue
+                self.tokenDict[m.group(1)] = self.tokenDict.get(m.group(1), 0) + int(m.group(2))
+                s.totalValues += int(m.group(2))
+                s.totalObjects += 1
 
     def read_numerics(self, s, h):
         # in this special mode, we print out the histogram here instead
@@ -309,7 +290,7 @@ class InputReader:
         for line in sys.stdin:
             try:
                 line = float(line.rstrip())
-            except Exception:
+            except ValueError:
                 line = lastVal
 
             graphVal = 0
@@ -334,7 +315,7 @@ class InputReader:
         for k in outList:
             sys.stdout.write(s.keyColour)
             sys.stdout.write(str(int(k)).rjust(maxWidth))
-            pct = f"({float(k) / float(sumVal) * 100:2.2f}%)"
+            pct = f"({k / sumVal * 100:2.2f}%)"
             sys.stdout.write(s.pctColour)
             sys.stdout.write(pct.rjust(9) + " ")
             sys.stdout.write(s.graphColour)
@@ -356,7 +337,7 @@ class Settings:
         self.histogramChar = "-"
         self.colourisedOutput = False
         self.logarithmic = False
-        self.numOnly = "XXX"
+        self.numOnly = None
         self.verbose = False
         self.graphValues = ""
         self.size = ""
@@ -388,10 +369,9 @@ class Settings:
 
         # rcfile grabbing/parsing if specified
         if len(sys.argv) > 1 and "--rcfile" in sys.argv[1]:
-            rcFile = sys.argv[1].split("=")[1]
-            rcFile = os.path.expanduser(rcFile)
+            rcFile = Path(sys.argv[1].split("=")[1]).expanduser()
         else:
-            rcFile = os.environ.get("HOME") + "/.distributionrc"
+            rcFile = Path.home() / ".distributionrc"
 
         # parse opts from the rcFile if it exists
         try:
@@ -471,12 +451,13 @@ class Settings:
 
         # synonyms "monotonically-increasing": derivative, difference, delta, increasing
         # so all "d" "i" and "m" words will be graphing those differences
-        if self.numOnly[0] in ("d", "i", "m"):
-            self.numOnly = "mon"
         # synonyms "actual values": absolute, actual, number, normal, noop,
         # so all "a" and "n" words will graph straight up numbers
-        if self.numOnly[0] in ("a", "n"):
-            self.numOnly = "abs"
+        if self.numOnly is not None:
+            if self.numOnly[0] in ("d", "i", "m"):
+                self.numOnly = "mon"
+            elif self.numOnly[0] in ("a", "n"):
+                self.numOnly = "abs"
 
         # override variables if they were explicitly given
         if self.widthArg != 0:
@@ -615,7 +596,7 @@ def main():
     if s.graphValues:
         # user passed g=vk or g=kv
         i.read_pretallied_tokens(s)
-    elif s.numOnly != "XXX":
+    elif s.numOnly is not None:
         # s.numOnly was specified by the user
         i.read_numerics(s, h)
         # read_numerics will have output a graph already, so exit
