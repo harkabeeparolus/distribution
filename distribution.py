@@ -48,38 +48,42 @@ class Histogram:
     """
 
     def histogram_bar(
-        self, s: Settings, hist_width: int, max_val: float, bar_val: float
+        self,
+        settings: Settings,
+        histogram_width: int,
+        max_value: float,
+        bar_value: float,
     ) -> str:
         """Return a histogram bar string scaled to the given value.
 
         Given a value and max, return a string of the proper number of
         characters, including unicode partial-width characters.
         """
-        return_bar = ""
+        bar = ""
 
         # first case is partial-width chars
         one_char = ""
-        if s.char_width < 1:
-            zero_char = s.graph_chars[-1]
-        elif len(s.histogram_char) > 1:
-            zero_char = s.histogram_char[0]
-            one_char = s.histogram_char[1]
+        if settings.char_width < 1:
+            zero_char = settings.graph_chars[-1]
+        elif len(settings.histogram_char) > 1:
+            zero_char = settings.histogram_char[0]
+            one_char = settings.histogram_char[1]
         else:
-            zero_char = s.histogram_char
-            one_char = s.histogram_char
+            zero_char = settings.histogram_char
+            one_char = settings.histogram_char
 
         # write out the full-width integer portion of the histogram
-        if s.logarithmic:
-            max_log = math.log(max_val)
-            bar_log = math.log(bar_val) if bar_val > 0 else 0
-            int_width = int(bar_log / max_log * hist_width)
-            remainder_width = (bar_log / max_log * hist_width) - int_width
+        if settings.logarithmic:
+            max_log = math.log(max_value)
+            bar_log = math.log(bar_value) if bar_value > 0 else 0
+            integer_width = int(bar_log / max_log * histogram_width)
+            remainder_width = (bar_log / max_log * histogram_width) - integer_width
         else:
-            int_width = int(bar_val / max_val * hist_width)
-            remainder_width = (bar_val / max_val * hist_width) - int_width
+            integer_width = int(bar_value / max_value * histogram_width)
+            remainder_width = (bar_value / max_value * histogram_width) - integer_width
 
-        # write the zeroeth character int_width times...
-        return_bar += zero_char * int_width
+        # write the zeroeth character integer_width times...
+        bar += zero_char * integer_width
 
         # we always have at least one remaining char for histogram - if
         # we have full-width chars, then just print it, otherwise do a
@@ -87,100 +91,112 @@ class Histogram:
         #
         # FIXME: The remainder partial char printed does not take into  # noqa: FIX001
         # account logarithmic scale (can humans notice?).
-        if s.char_width == 1:
-            return_bar += one_char
-        elif s.char_width < 1:
-            if remainder_width > s.char_width:
+        if settings.char_width == 1:
+            bar += one_char
+        elif settings.char_width < 1:
+            if remainder_width > settings.char_width:
                 # high-resolution: figure out what partial-width char to use
-                which_char = int(remainder_width / s.char_width)
-                return_bar += s.graph_chars[which_char]
+                which_char = int(remainder_width / settings.char_width)
+                bar += settings.graph_chars[which_char]
             else:
                 # minimum-width character so we always see something
-                return_bar += s.graph_chars[0]
+                bar += settings.graph_chars[0]
 
-        return return_bar
+        return bar
 
-    def write_hist(self, s: Settings, token_dict: Counter[str]) -> None:
+    def write_hist(self, settings: Settings, token_dict: Counter[str]) -> None:
         """Sort token_dict by frequency and print a histogram to stdout."""
-        max_token_len = 0
+        max_token_length = 0
         output_dict = {}
 
-        num_items = 0
-        max_val = 0
-        s.total_values = int(s.total_values)
+        item_count = 0
+        max_value = 0
+        settings.total_values = int(settings.total_values)
 
         # sort first by the value of a key, then by the key itself in case
         # of a tie.  this allows us to create deterministic sorts when we have
         # multiple entries in our histogram with the same frequency.
         def value_key_compare(
-            d: Counter[str],
+            token_counts: Counter[str],
         ) -> Callable[[str], tuple[int | None, str]]:
-            return lambda key: (d.get(key), key)
+            return lambda key: (token_counts.get(key), key)
 
-        for k in sorted(token_dict, key=value_key_compare(token_dict), reverse=True):
-            # can't remember what feature "if k:" adds - i think there's an
+        for key in sorted(token_dict, key=value_key_compare(token_dict), reverse=True):
+            # can't remember what feature "if key:" adds - i think there's an
             # off-by-one death the script sometimes suffers without it.
-            if k:
-                output_dict[k] = token_dict[k]
-                max_token_len = max(max_token_len, len(k))
-                max_val = max(max_val, output_dict[k])
-                num_items += 1
-                if num_items >= s.height:
+            if key:
+                output_dict[key] = token_dict[key]
+                max_token_length = max(max_token_length, len(key))
+                max_value = max(max_value, output_dict[key])
+                item_count += 1
+                if item_count >= settings.height:
                     break
 
-        s.end_time = time.monotonic()
-        elapsed_ms = (s.end_time - s.start_time) * 1000
-        if s.verbose:
-            print(f"tokens/lines examined: {s.total_objects:,d}", file=sys.stderr)
-            print(f" tokens/lines matched: {s.total_values:,d}", file=sys.stderr)
+        settings.end_time = time.monotonic()
+        elapsed_ms = (settings.end_time - settings.start_time) * 1000
+        if settings.verbose:
+            print(
+                f"tokens/lines examined: {settings.total_objects:,d}",
+                file=sys.stderr,
+            )
+            print(
+                f" tokens/lines matched: {settings.total_values:,d}",
+                file=sys.stderr,
+            )
             print(f"       histogram keys: {len(token_dict):,d}", file=sys.stderr)
             print(f"              runtime: {elapsed_ms:,.2f}ms", file=sys.stderr)
 
         # the first entry will determine these values
-        hist_width = 0
+        histogram_width = 0
         max_value_width = 0
-        max_pct_width = 0
+        max_percent_width = 0
         keys = list(output_dict)
-        for i, k in enumerate(keys):
-            # can't remember what feature "if k:" adds - i think there's an
+        for index, key in enumerate(keys):
+            # can't remember what feature "if key:" adds - i think there's an
             # off-by-one death the script sometimes suffers without it.
-            if k:
+            if key:
                 if max_value_width == 0:
-                    max_value_width = len(str(output_dict[k]))
-                    max_pct_width = len(
-                        f"({output_dict[k] / s.total_values * 100:2.2f}%)"
+                    max_value_width = len(str(output_dict[key]))
+                    max_percent_width = len(
+                        f"({output_dict[key] / settings.total_values * 100:2.2f}%)"
                     )
 
                     # we always output a single histogram char at the end, so
                     # we output one less than actual number here
-                    hist_width = (
-                        s.width
-                        - (max_token_len + 1)
+                    histogram_width = (
+                        settings.width
+                        - (max_token_length + 1)
                         - (max_value_width + 1)
-                        - (max_pct_width + 1)
+                        - (max_percent_width + 1)
                         - 1
                     )
 
                     # output a header; key_colour goes on this line so piping
                     # stdout to sort works (no colour prefix on data lines)
                     print(
-                        f"{'Key':>{max_token_len}}|{'Ct':<{max_value_width}} "
-                        f"{'(Pct)':<{max_pct_width}} Histogram{s.key_colour}",
+                        f"{'Key':>{max_token_length}}|{'Ct':<{max_value_width}} "
+                        f"{'(Pct)':<{max_percent_width}} Histogram{settings.key_colour}",
                         file=sys.stderr,
                     )
 
-                out_val = str(output_dict[k])
-                pct = f"({output_dict[k] / s.total_values * 100:2.2f}%)"
-                bar = self.histogram_bar(s, hist_width, max_val, output_dict[k])
+                output_value = str(output_dict[key])
+                percent = f"({output_dict[key] / settings.total_values * 100:2.2f}%)"
+                bar = self.histogram_bar(
+                    settings, histogram_width, max_value, output_dict[key]
+                )
                 # print key_colour at end of each line so that piping
                 # stdout to sort works (no colour prefix on data lines);
                 # on the last line, reset to regular_colour instead
-                end_colour = s.regular_colour if i == len(keys) - 1 else s.key_colour
+                end_colour = (
+                    settings.regular_colour
+                    if index == len(keys) - 1
+                    else settings.key_colour
+                )
                 print(
-                    f"{k:>{max_token_len}}{s.regular_colour}|"
-                    f"{s.ct_colour}{out_val:>{max_value_width}} "
-                    f"{s.pct_colour}{pct:>{max_pct_width}} "
-                    f"{s.graph_colour}{bar}{end_colour}"
+                    f"{key:>{max_token_length}}{settings.regular_colour}|"
+                    f"{settings.count_colour}{output_value:>{max_value_width}} "
+                    f"{settings.percent_colour}{percent:>{max_percent_width}} "
+                    f"{settings.graph_colour}{bar}{end_colour}"
                 )
 
 
@@ -196,114 +212,116 @@ class InputReader:
         """Initialize an empty token frequency counter."""
         self.token_dict: Counter[str] = Counter()
 
-    def prune_keys(self, s: Settings) -> None:
+    def prune_keys(self, settings: Settings) -> None:
         """Keep only the top max_keys entries in the token dict."""
         new_dict: Counter[str] = Counter()
-        num_keys_transferred = 0
-        for k in sorted(self.token_dict, key=self.token_dict.__getitem__, reverse=True):
-            if k:
-                new_dict[k] = self.token_dict[k]
-                num_keys_transferred += 1
-                if num_keys_transferred > s.max_keys:
+        keys_transferred = 0
+        for key in sorted(
+            self.token_dict, key=self.token_dict.__getitem__, reverse=True
+        ):
+            if key:
+                new_dict[key] = self.token_dict[key]
+                keys_transferred += 1
+                if keys_transferred > settings.max_keys:
                     break
         self.token_dict = new_dict
-        s.num_prunes += 1
+        settings.prune_count += 1
 
-    def tokenize_input(self, s: Settings) -> None:  # noqa: C901
+    def tokenize_input(self, settings: Settings) -> None:  # noqa: C901
         """Split stdin lines into tokens and count their frequency.
 
         Splits on whitespace or word boundaries by default, but the user
         can specify any regexp. Likewise, matching defaults to everything
         but can be restricted to all-alpha or all-numeric tokens.
         """
-        if s.tokenize == "white":
-            s.tokenize = r"\s+"
-        elif s.tokenize == "word":
-            s.tokenize = r"\W"
+        if settings.tokenize == "white":
+            settings.tokenize = r"\s+"
+        elif settings.tokenize == "word":
+            settings.tokenize = r"\W"
 
         # how to match (filter) the input... typically we want either
         # all-alpha or all-numeric, but again, user can specify
-        if s.match_regexp == "word":
-            s.match_regexp = r"^[A-Z,a-z]+$"
-        elif s.match_regexp in ["num", "number"]:
-            s.match_regexp = r"^\d+$"
+        if settings.match_regexp == "word":
+            settings.match_regexp = r"^[A-Z,a-z]+$"
+        elif settings.match_regexp in ["num", "number"]:
+            settings.match_regexp = r"^\d+$"
 
         # docs say these are cached, but i got about 2x speed boost
         # from doing the compile
-        should_tokenize = bool(s.tokenize)
-        pt = re.compile(s.tokenize)
-        pm = re.compile(s.match_regexp)
+        should_tokenize = bool(settings.tokenize)
+        tokenize_pattern = re.compile(settings.tokenize)
+        match_pattern = re.compile(settings.match_regexp)
 
-        next_stat = time.time() + s.stat_interval
+        next_stat = time.time() + settings.stat_interval
 
         prune_objects = 0
         # ruff: disable[PLW2901]
         for line in sys.stdin:
             line = line.rstrip("\n")
             if should_tokenize:
-                for token in pt.split(line):
+                for token in tokenize_pattern.split(line):
                     # user desires to break line into tokens...
-                    s.total_objects += 1
-                    if pm.match(token):
-                        s.total_values += 1
+                    settings.total_objects += 1
+                    if match_pattern.match(token):
+                        settings.total_values += 1
                         prune_objects += 1
                         self.token_dict[token] += 1
             else:
                 # user just wants every line to be a token
-                s.total_objects += 1
-                if pm.match(line):
-                    s.total_values += 1
+                settings.total_objects += 1
+                if match_pattern.match(line):
+                    settings.total_values += 1
                     prune_objects += 1
                     self.token_dict[line] += 1
 
             # prune the hash if it gets too large
-            if prune_objects >= s.key_prune_interval:
-                self.prune_keys(s)
+            if prune_objects >= settings.key_prune_interval:
+                self.prune_keys(settings)
                 prune_objects = 0
 
-            if s.verbose and time.time() > next_stat:
+            if settings.verbose and time.time() > next_stat:
                 print(
-                    f"tokens/lines examined: {s.total_objects:,d} ; hash prunes: {s.num_prunes:,d}...",
+                    f"tokens/lines examined: {settings.total_objects:,d} ; hash prunes: {settings.prune_count:,d}...",
                     end="\r",
                     file=sys.stderr,
                 )
-                next_stat = time.time() + s.stat_interval
+                next_stat = time.time() + settings.stat_interval
         # ruff: enable[PLW2901]
 
-    def read_pretallied_tokens(self, s: Settings) -> None:
+    def read_pretallied_tokens(self, settings: Settings) -> None:
         """Read pre-counted key/value pairs from stdin.
 
         Input is already tallied (as in `du -sb`). vk means the number
         is first and key second; kv means key first and number second.
         """
-        vk = re.compile(r"^\s*(\d+)\s+(.+)$")
-        kv = re.compile(r"^(.+?)\s+(\d+)$")
-        if s.graph_values == "vk":
+        value_key_pattern = re.compile(r"^\s*(\d+)\s+(.+)$")
+        key_value_pattern = re.compile(r"^(.+?)\s+(\d+)$")
+        if settings.graph_values == "vk":
             for line in sys.stdin:
-                m = vk.match(line)
-                if not m:
+                match = value_key_pattern.match(line)
+                if not match:
                     print(
                         f" E Input malformed+discarded (perhaps pass -g=kv?): {line}",
                         file=sys.stderr,
                     )
                     continue
-                self.token_dict[m.group(2)] += int(m.group(1))
-                s.total_values += int(m.group(1))
-                s.total_objects += 1
-        elif s.graph_values == "kv":
+                self.token_dict[match.group(2)] += int(match.group(1))
+                settings.total_values += int(match.group(1))
+                settings.total_objects += 1
+        elif settings.graph_values == "kv":
             for line in sys.stdin:
-                m = kv.match(line)
-                if not m:
+                match = key_value_pattern.match(line)
+                if not match:
                     print(
                         f" E Input malformed+discarded (perhaps pass -g=vk?): {line}",
                         file=sys.stderr,
                     )
                     continue
-                self.token_dict[m.group(1)] += int(m.group(2))
-                s.total_values += int(m.group(2))
-                s.total_objects += 1
+                self.token_dict[match.group(1)] += int(match.group(2))
+                settings.total_values += int(match.group(2))
+                settings.total_objects += 1
 
-    def read_numerics(self, s: Settings, h: Histogram) -> None:
+    def read_numerics(self, settings: Settings, histogram: Histogram) -> None:
         """Read raw numbers from stdin and print a simple graph directly.
 
         Unlike the other modes, output is printed here rather than in
@@ -311,45 +329,47 @@ class InputReader:
         percentages — just a bar for each numeric value or its
         monotonic difference.
         """
-        last_val = 0.0
-        max_val = 0.0
+        last_value = 0.0
+        max_value = 0.0
         max_width = 0
-        sum_val = 0.0
-        out_list: list[float] = []
+        total_value = 0.0
+        output_list: list[float] = []
         # ruff: disable[PLW2901]
         for line in sys.stdin:
             try:
                 line = float(line.rstrip())
             except ValueError:
-                line = last_val
+                line = last_value
 
-            graph_val = 0.0
-            if s.num_only == "mon":
-                if s.total_objects > 0:
-                    graph_val = line - last_val
-                last_val = line
+            graph_value = 0.0
+            if settings.numeric_mode == "mon":
+                if settings.total_objects > 0:
+                    graph_value = line - last_value
+                last_value = line
             else:
-                graph_val = line
+                graph_value = line
 
-            if graph_val > max_val:
-                max_val = graph_val
-                max_width = len(str(graph_val))
+            if graph_value > max_value:
+                max_value = graph_value
+                max_width = len(str(graph_value))
 
-            sum_val += graph_val
+            total_value += graph_value
 
-            if s.total_objects > 0:
-                out_list.append(graph_val)
-            s.total_objects += 1
+            if settings.total_objects > 0:
+                output_list.append(graph_value)
+            settings.total_objects += 1
         # ruff: enable[PLW2901]
 
         # simple graphical output
-        for k in out_list:
-            pct = f"({k / sum_val * 100:2.2f}%)"
-            bar = h.histogram_bar(s, s.width - 11 - max_width, max_val, k)
+        for value in output_list:
+            percent = f"({value / total_value * 100:2.2f}%)"
+            bar = histogram.histogram_bar(
+                settings, settings.width - 11 - max_width, max_value, value
+            )
             print(
-                f"{s.key_colour}{int(k):>{max_width}}"
-                f"{s.pct_colour}{pct:>9} "
-                f"{s.graph_colour}{bar}{s.regular_colour}"
+                f"{settings.key_colour}{int(value):>{max_width}}"
+                f"{settings.percent_colour}{percent:>9} "
+                f"{settings.graph_colour}{bar}{settings.regular_colour}"
             )
 
 
@@ -516,7 +536,7 @@ class Settings:
         self.histogram_char = "-"
         self.colourised_output = False
         self.logarithmic = False
-        self.num_only = None
+        self.numeric_mode = None
         self.verbose = False
         # whether to parse input into bins, or just present pre-tallied data
         self.graph_values = ""
@@ -526,13 +546,13 @@ class Settings:
         self.match_regexp = "."
         # how often to give status if verbose
         self.stat_interval = 1.0
-        self.num_prunes = 0
+        self.prune_count = 0
         # for colourised output
         self.colour_palette = DEFAULT_PALETTE
         self.regular_colour = ""
         self.key_colour = ""
-        self.ct_colour = ""
-        self.pct_colour = ""
+        self.count_colour = ""
+        self.percent_colour = ""
         self.graph_colour = ""
         # for stats
         self.total_objects = 0
@@ -551,7 +571,7 @@ class Settings:
         self.colourised_output = args.color
         self.graph_values = args.graph
         self.logarithmic = args.logarithmic
-        self.num_only = args.numonly
+        self.numeric_mode = args.numonly
         self.verbose = args.verbose
         self.width_arg = args.width
         self.height_arg = args.height
@@ -566,13 +586,13 @@ class Settings:
 
         # first, size, which might be further overridden by width/height later
         size_presets = {}
-        for names, dims in [
+        for names, dimensions in [
             (("small", "sm", "s"), (60, 10)),
             (("medium", "med", "m"), (100, 20)),
             (("large", "lg", "l"), (140, 35)),
         ]:
             for name in names:
-                size_presets[name] = dims
+                size_presets[name] = dimensions
         if self.size in ("full", "fl", "f"):
             self.width, self.height = shutil.get_terminal_size()
             self.width = int(self.width)
@@ -590,11 +610,11 @@ class Settings:
         # so all "d" "i" and "m" words will be graphing those differences
         # synonyms "actual values": absolute, actual, number, normal, noop,
         # so all "a" and "n" words will graph straight up numbers
-        if self.num_only is not None:
-            if self.num_only[0] in ("d", "i", "m"):
-                self.num_only = "mon"
-            elif self.num_only[0] in ("a", "n"):
-                self.num_only = "abs"
+        if self.numeric_mode is not None:
+            if self.numeric_mode[0] in ("d", "i", "m"):
+                self.numeric_mode = "mon"
+            elif self.numeric_mode[0] in ("a", "n"):
+                self.numeric_mode = "abs"
 
         # if they passed --width or --height, they probably meant it more
         # than defaults or the --size parameter - so apply this last
@@ -615,18 +635,18 @@ class Settings:
 
         # colour palette
         if self.colourised_output:
-            cl = self.colour_palette.split(",")
+            colours = self.colour_palette.split(",")
             # ANSI color code is ESC+[+NN+m where ESC=chr(27), [ and m are
             # the literal characters, and NN is a two-digit number, typically
             # from 31 to 37 - why is this knowledge still useful in 2014?
-            cl = [f"\033[{e}m" for e in cl]
+            colours = [f"\033[{code}m" for code in colours]
             (
                 self.regular_colour,
                 self.key_colour,
-                self.ct_colour,
-                self.pct_colour,
+                self.count_colour,
+                self.percent_colour,
                 self.graph_colour,
-            ) = cl
+            ) = colours
 
         # some useful ASCII-->utf-8 substitutions
         char_substitutions = {
@@ -652,23 +672,23 @@ class Settings:
 
 def main() -> None:
     """Parse arguments, read stdin, and render the histogram."""
-    s = Settings()
-    i = InputReader()
-    h = Histogram()
+    settings = Settings()
+    reader = InputReader()
+    histogram = Histogram()
 
-    if s.graph_values:
+    if settings.graph_values:
         # user passed g=vk or g=kv
-        i.read_pretallied_tokens(s)
-    elif s.num_only is not None:
-        # s.num_only was specified by the user
-        i.read_numerics(s, h)
+        reader.read_pretallied_tokens(settings)
+    elif settings.numeric_mode is not None:
+        # numeric_mode was specified by the user
+        reader.read_numerics(settings, histogram)
         # read_numerics will have output a graph already, so exit
         sys.exit(0)
     else:
         # this is the original behaviour of distribution
-        i.tokenize_input(s)
+        reader.tokenize_input(settings)
 
-    h.write_hist(s, i.token_dict)
+    histogram.write_hist(settings, reader.token_dict)
 
 
 if __name__ == "__main__":
