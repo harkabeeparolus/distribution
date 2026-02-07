@@ -122,15 +122,14 @@ class Histogram:
             return lambda key: (token_counts.get(key), key)
 
         for key in sorted(token_dict, key=value_key_compare(token_dict), reverse=True):
-            # can't remember what feature "if key:" adds - i think there's an
-            # off-by-one death the script sometimes suffers without it.
-            if key:
-                output_dict[key] = token_dict[key]
-                max_token_length = max(max_token_length, len(key))
-                max_value = max(max_value, output_dict[key])
-                item_count += 1
-                if item_count >= settings.height:
-                    break
+            if not key:
+                continue
+            output_dict[key] = token_dict[key]
+            max_token_length = max(max_token_length, len(key))
+            max_value = max(max_value, output_dict[key])
+            item_count += 1
+            if item_count >= settings.height:
+                break
 
         settings.end_time = time.monotonic()
         elapsed_ms = (settings.end_time - settings.start_time) * 1000
@@ -152,52 +151,49 @@ class Histogram:
         max_percent_width = 0
         keys = list(output_dict)
         for index, key in enumerate(keys):
-            # can't remember what feature "if key:" adds - i think there's an
-            # off-by-one death the script sometimes suffers without it.
-            if key:
-                if max_value_width == 0:
-                    max_value_width = len(str(output_dict[key]))
-                    max_percent_width = len(
-                        f"({output_dict[key] / settings.total_values * 100:2.2f}%)"
-                    )
-
-                    # we always output a single histogram char at the end, so
-                    # we output one less than actual number here
-                    histogram_width = (
-                        settings.width
-                        - (max_token_length + 1)
-                        - (max_value_width + 1)
-                        - (max_percent_width + 1)
-                        - 1
-                    )
-
-                    # output a header; key_colour goes on this line so piping
-                    # stdout to sort works (no colour prefix on data lines)
-                    print(
-                        f"{'Key':>{max_token_length}}|{'Ct':<{max_value_width}} "
-                        f"{'(Pct)':<{max_percent_width}} Histogram{settings.key_colour}",
-                        file=sys.stderr,
-                    )
-
-                output_value = str(output_dict[key])
-                percent = f"({output_dict[key] / settings.total_values * 100:2.2f}%)"
-                bar = self.histogram_bar(
-                    settings, histogram_width, max_value, output_dict[key]
+            if max_value_width == 0:
+                max_value_width = len(str(output_dict[key]))
+                max_percent_width = len(
+                    f"({output_dict[key] / settings.total_values * 100:2.2f}%)"
                 )
-                # print key_colour at end of each line so that piping
-                # stdout to sort works (no colour prefix on data lines);
-                # on the last line, reset to regular_colour instead
-                end_colour = (
-                    settings.regular_colour
-                    if index == len(keys) - 1
-                    else settings.key_colour
+
+                # we always output a single histogram char at the end, so
+                # we output one less than actual number here
+                histogram_width = (
+                    settings.width
+                    - (max_token_length + 1)
+                    - (max_value_width + 1)
+                    - (max_percent_width + 1)
+                    - 1
                 )
+
+                # output a header; key_colour goes on this line so piping
+                # stdout to sort works (no colour prefix on data lines)
                 print(
-                    f"{key:>{max_token_length}}{settings.regular_colour}|"
-                    f"{settings.count_colour}{output_value:>{max_value_width}} "
-                    f"{settings.percent_colour}{percent:>{max_percent_width}} "
-                    f"{settings.graph_colour}{bar}{end_colour}"
+                    f"{'Key':>{max_token_length}}|{'Ct':<{max_value_width}} "
+                    f"{'(Pct)':<{max_percent_width}} Histogram{settings.key_colour}",
+                    file=sys.stderr,
                 )
+
+            output_value = str(output_dict[key])
+            percent = f"({output_dict[key] / settings.total_values * 100:2.2f}%)"
+            bar = self.histogram_bar(
+                settings, histogram_width, max_value, output_dict[key]
+            )
+            # print key_colour at end of each line so that piping
+            # stdout to sort works (no colour prefix on data lines);
+            # on the last line, reset to regular_colour instead
+            end_colour = (
+                settings.regular_colour
+                if index == len(keys) - 1
+                else settings.key_colour
+            )
+            print(
+                f"{key:>{max_token_length}}{settings.regular_colour}|"
+                f"{settings.count_colour}{output_value:>{max_value_width}} "
+                f"{settings.percent_colour}{percent:>{max_percent_width}} "
+                f"{settings.graph_colour}{bar}{end_colour}"
+            )
 
 
 class InputReader:
@@ -219,11 +215,12 @@ class InputReader:
         for key in sorted(
             self.token_dict, key=self.token_dict.__getitem__, reverse=True
         ):
-            if key:
-                new_dict[key] = self.token_dict[key]
-                keys_transferred += 1
-                if keys_transferred > settings.max_keys:
-                    break
+            if not key:
+                continue
+            new_dict[key] = self.token_dict[key]
+            keys_transferred += 1
+            if keys_transferred > settings.max_keys:
+                break
         self.token_dict = new_dict
         settings.prune_count += 1
 
@@ -260,6 +257,9 @@ class InputReader:
             line = line.rstrip("\n")
             if should_tokenize:
                 for token in tokenize_pattern.split(line):
+                    if not token:
+                        # regex split produces empty strings at boundaries
+                        continue
                     # user desires to break line into tokens...
                     settings.total_objects += 1
                     if match_pattern.match(token):
@@ -600,7 +600,7 @@ class Settings:
             # need room for the verbosity output
             if self.verbose:
                 self.height -= 4
-            # in case tput went all bad, ensure some minimum size
+            # ensure some minimum size
             self.width = max(self.width, 40)
             self.height = max(self.height, 10)
         elif self.size in size_presets:
