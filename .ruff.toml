@@ -1,7 +1,6 @@
 [lint]
 select = ["ALL"]
 ignore = [
-    "ANN",     # type annotations — not used in this project
     "COM812",  # conflicts with ruff format
     "D203",    # conflicts with D211
     "D213",    # conflicts with D212

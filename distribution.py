@@ -196,11 +196,11 @@ class InputReader:
 
     def __init__(self) -> None:
         """Initialize an empty token frequency counter."""
-        self.token_dict = Counter()
+        self.token_dict: Counter[str] = Counter()
 
     def prune_keys(self, s: Settings) -> None:
         """Keep only the top max_keys entries in the token dict."""
-        new_dict = Counter()
+        new_dict: Counter[str] = Counter()
         num_keys_transferred = 0
         for k in sorted(self.token_dict, key=self.token_dict.__getitem__, reverse=True):
             if k:
@@ -313,11 +313,11 @@ class InputReader:
         percentages — just a bar for each numeric value or its
         monotonic difference.
         """
-        last_val = 0
-        max_val = 0
+        last_val = 0.0
+        max_val = 0.0
         max_width = 0
-        sum_val = 0
-        out_list = []
+        sum_val = 0.0
+        out_list: list[float] = []
         # ruff: disable[PLW2901]
         for line in sys.stdin:
             try:
@@ -325,7 +325,7 @@ class InputReader:
             except ValueError:
                 line = last_val
 
-            graph_val = 0
+            graph_val = 0.0
             if s.num_only == "mon":
                 if s.total_objects > 0:
                     graph_val = line - last_val
@@ -337,7 +337,7 @@ class InputReader:
                 max_val = graph_val
                 max_width = len(str(graph_val))
 
-            sum_val += int(graph_val)
+            sum_val += graph_val
 
             if s.total_objects > 0:
                 out_list.append(graph_val)
@@ -516,7 +516,7 @@ class Settings:
     def __init__(self) -> None:  # noqa: C901, PLR0912, PLR0915
         """Load defaults, then overlay rcfile and CLI arguments."""
         self.start_time = time.monotonic()
-        self.end_time = 0
+        self.end_time = 0.0
         self.width_arg = 0
         self.height_arg = 0
         self.width = 80
@@ -548,7 +548,7 @@ class Settings:
         self.key_prune_interval = 1500000
         self.max_keys = DEFAULT_MAX_KEYS
         # for advanced graphing
-        self.char_width = 1
+        self.char_width = 1.0
         self.graph_chars = []
         self.partial_blocks = ["▏", "▎", "▍", "▌", "▋", "▊", "▉", "█"]  # char=pb
         self.partial_lines = ["╸", "╾", "━"]  # char=hl

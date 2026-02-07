@@ -20,6 +20,10 @@ ruff format distribution.py
 
 # Lint
 ruff check distribution.py
+
+# Type check
+mypy distribution.py
+ty check distribution.py
 ```
 
 Tests are shell-based: each test feeds `stdin.*.txt` files and compares stdout/stderr against `*.expected.txt` files. There are 7 test cases.
