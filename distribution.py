@@ -89,10 +89,14 @@ class Histogram:
         # account logarithmic scale (can humans notice?).
         if s.char_width == 1:
             return_bar += one_char
-        elif s.char_width < 1 and remainder_width > s.char_width:
-            # high-resolution: figure out what partial-width char to use
-            which_char = int(remainder_width / s.char_width)
-            return_bar += s.graph_chars[which_char]
+        elif s.char_width < 1:
+            if remainder_width > s.char_width:
+                # high-resolution: figure out what partial-width char to use
+                which_char = int(remainder_width / s.char_width)
+                return_bar += s.graph_chars[which_char]
+            else:
+                # minimum-width character so we always see something
+                return_bar += s.graph_chars[0]
 
         return return_bar
 
