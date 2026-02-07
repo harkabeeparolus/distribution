@@ -61,12 +61,13 @@ def histogram_bar(  # noqa: PLR0913
 ) -> str:
     """Return a histogram bar string scaled to the given value.
 
-    Given a value and max, return a string of the proper number of
-    characters, including unicode partial-width characters.
+    The bar has two parts: a run of full-width characters sized to the
+    integer portion of the scaled width, then a single trailing character
+    — either full-width or a partial-width Unicode glyph chosen to
+    represent the fractional remainder.
     """
     bar = ""
 
-    # first case is partial-width chars
     one_char = ""
     if char_width < 1:
         zero_char = graph_chars[-1]
@@ -77,7 +78,6 @@ def histogram_bar(  # noqa: PLR0913
         zero_char = histogram_char
         one_char = histogram_char
 
-    # write out the full-width integer portion of the histogram
     if logarithmic:
         max_log = math.log(max_value)
         bar_log = math.log(bar_value) if bar_value > 0 else 0
@@ -87,13 +87,8 @@ def histogram_bar(  # noqa: PLR0913
         integer_width = int(bar_value / max_value * histogram_width)
         remainder_width = (bar_value / max_value * histogram_width) - integer_width
 
-    # write the zeroeth character integer_width times...
     bar += zero_char * integer_width
 
-    # we always have at least one remaining char for histogram - if
-    # we have full-width chars, then just print it, otherwise do a
-    # calculation of how much remainder we need to print
-    #
     # FIXME: The remainder partial char printed does not take into  # noqa: FIX001
     # account logarithmic scale (can humans notice?).
     if char_width == 1:
@@ -111,13 +106,20 @@ def histogram_bar(  # noqa: PLR0913
 
 
 def write_hist(settings: Settings, stats: Stats, token_dict: Counter[str]) -> None:
-    """Sort token_dict by frequency and print a histogram to stdout."""
-    # sort by (count, key) descending and select the top entries
+    """Sort token_dict by frequency and print a histogram to stdout.
+
+    Sorts by (count, key) descending so ties are broken deterministically
+    by key name.  Headers go to stderr; data lines carry no colour prefix
+    so output can be piped to sort.
+    """
     max_token_length = 0
     output_dict: dict[str, int] = {}
     max_value = 0
     for key in sorted(token_dict, key=lambda k: (token_dict[k], k), reverse=True):
         if not key:
+            # re.split() produces empty strings at boundaries, and blank
+            # input lines become "".  Callers filter these, but guard here
+            # too: an empty key would render a broken row with no label.
             continue
         output_dict[key] = token_dict[key]
         max_token_length = max(max_token_length, len(key))
@@ -126,7 +128,12 @@ def write_hist(settings: Settings, stats: Stats, token_dict: Counter[str]) -> No
             break
 
     if not output_dict:
-        return
+        if stats.total_objects > 0:
+            print("All input filtered! ", end="", file=sys.stderr)
+        else:
+            print("No input! ", end="", file=sys.stderr)
+        print("No histogram for you.", file=sys.stderr)
+        sys.exit(255)
 
     # verbose timing stats
     stats.end_time = time.monotonic()
@@ -157,8 +164,6 @@ def write_hist(settings: Settings, stats: Stats, token_dict: Counter[str]) -> No
         - 1
     )
 
-    # header; key_colour goes on this line so piping stdout to sort
-    # works (no colour prefix on data lines)
     print(
         f"{'Key':>{max_token_length}}|{'Ct':<{max_value_width}} "
         f"{'(Pct)':<{max_percent_width}} Histogram{settings.key_colour}",
@@ -179,8 +184,11 @@ def write_hist(settings: Settings, stats: Stats, token_dict: Counter[str]) -> No
             histogram_char=settings.histogram_char,
             logarithmic=settings.logarithmic,
         )
-        # key_colour at end of each line so piping stdout to sort works;
-        # on the last line, reset to regular_colour instead
+        # last line resets to regular_colour; all others continue key_colour.
+        # FIXME: even with these colour-placement antics, one key will  # noqa: FIX001
+        # still be printed with the wrong colour on sorted output most
+        # of the time. The only real fix would be to sort within the
+        # script itself.
         end_colour = (
             settings.regular_colour if index == len(keys) - 1 else settings.key_colour
         )
@@ -295,7 +303,13 @@ class NumericData(NamedTuple):
 
 
 def read_numerics(settings: Settings, stats: Stats) -> NumericData:
-    """Read raw numbers from stdin and return graph data."""
+    """Read raw numbers from stdin and return graph data.
+
+    Unlike the main histogram pipeline, numeric mode is a simpler
+    visualisation: it graphs every value without aggregation, totals,
+    or per-key percentages.  All values are graphed — --height and
+    --size are intentionally ignored so nothing is thrown away.
+    """
     last_value = 0.0
     max_value = 0.0
     max_width = 0
@@ -331,7 +345,11 @@ def read_numerics(settings: Settings, stats: Stats) -> NumericData:
 
 
 def render_numeric_graph(settings: Settings, data: NumericData) -> None:
-    """Print a simple bar graph for numeric values."""
+    """Print a simple bar graph for numeric values.
+
+    This is deliberately simpler than write_hist: no key labels, no
+    height limit, no sorting.  Every input value gets a bar.
+    """
     for value in data.values:
         percent = f"({value / data.total_value * 100:2.2f}%)"
         bar = histogram_bar(
