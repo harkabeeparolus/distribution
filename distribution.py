@@ -10,6 +10,8 @@ glory of your new-found data visualization. There are other use cases
 as well.
 """
 
+from __future__ import annotations
+
 import argparse
 import math
 import re
@@ -18,6 +20,10 @@ import sys
 import time
 from collections import Counter
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 DEFAULT_PALETTE = "0,0,32,35,34"
 DEFAULT_MAX_KEYS = 5000
@@ -26,11 +32,12 @@ DEFAULT_MAX_KEYS = 5000
 class DistributionParser(argparse.ArgumentParser):
     """Strip comments and blank lines from @-included config files."""
 
-    def convert_arg_line_to_args(self, arg_line):
-        """Yield non-empty, non-comment lines from config files."""
+    def convert_arg_line_to_args(self, arg_line: str) -> list[str]:
+        """Return non-empty, non-comment lines from config files."""
         stripped = arg_line.strip()
         if stripped and not stripped.startswith("#"):
-            yield stripped
+            return [stripped]
+        return []
 
 
 class Histogram:
@@ -40,7 +47,9 @@ class Histogram:
     printing a histogram for each of the highest height entries.
     """
 
-    def histogram_bar(self, s, hist_width, max_val, bar_val):
+    def histogram_bar(
+        self, s: Settings, hist_width: int, max_val: float, bar_val: float
+    ) -> str:
         """Return a histogram bar string scaled to the given value.
 
         Given a value and max, return a string of the proper number of
@@ -86,7 +95,7 @@ class Histogram:
 
         return return_bar
 
-    def write_hist(self, s, token_dict):
+    def write_hist(self, s: Settings, token_dict: Counter[str]) -> None:
         """Sort token_dict by frequency and print a histogram to stdout."""
         max_token_len = 0
         output_dict = {}
@@ -95,7 +104,9 @@ class Histogram:
         max_val = 0
         s.total_values = int(s.total_values)
 
-        def value_key_compare(d):
+        def value_key_compare(
+            d: Counter[str],
+        ) -> Callable[[str], tuple[int | None, str]]:
             return lambda key: (d.get(key), key)
 
         for k in sorted(token_dict, key=value_key_compare(token_dict), reverse=True):
@@ -183,15 +194,15 @@ class InputReader:
     of insertions to prevent OOM on large datasets.
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize an empty token frequency counter."""
         self.token_dict = Counter()
 
-    def prune_keys(self, s):
+    def prune_keys(self, s: Settings) -> None:
         """Keep only the top max_keys entries in the token dict."""
         new_dict = Counter()
         num_keys_transferred = 0
-        for k in sorted(self.token_dict, key=self.token_dict.get, reverse=True):
+        for k in sorted(self.token_dict, key=self.token_dict.__getitem__, reverse=True):
             if k:
                 new_dict[k] = self.token_dict[k]
                 num_keys_transferred += 1
@@ -200,7 +211,7 @@ class InputReader:
         self.token_dict = new_dict
         s.num_prunes += 1
 
-    def tokenize_input(self, s):  # noqa: C901
+    def tokenize_input(self, s: Settings) -> None:  # noqa: C901
         """Split stdin lines into tokens and count their frequency.
 
         Splits on whitespace or word boundaries by default, but the user
@@ -261,7 +272,7 @@ class InputReader:
                 next_stat = time.time() + s.stat_interval
         # ruff: enable[PLW2901]
 
-    def read_pretallied_tokens(self, s):
+    def read_pretallied_tokens(self, s: Settings) -> None:
         """Read pre-counted key/value pairs from stdin.
 
         Input is already tallied (as in `du -sb`). vk means the number
@@ -294,7 +305,7 @@ class InputReader:
                 s.total_values += int(m.group(2))
                 s.total_objects += 1
 
-    def read_numerics(self, s, h):
+    def read_numerics(self, s: Settings, h: Histogram) -> None:
         """Read raw numbers from stdin and print a simple graph directly.
 
         Unlike the other modes, output is printed here rather than in
@@ -349,7 +360,7 @@ class InputReader:
             )
 
 
-def _build_parser():
+def _build_parser() -> DistributionParser:
     """Build the argument parser with all options defined."""
     parser = DistributionParser(
         fromfile_prefix_chars="@",
@@ -482,7 +493,7 @@ def _build_parser():
     return parser
 
 
-def _parse_args():
+def _parse_args() -> argparse.Namespace:
     """Run two-pass parsing: CLI args first, then rcfile defaults underneath.
 
     If --rcfile is given, use that file; otherwise fall back to
@@ -502,7 +513,7 @@ def _parse_args():
 class Settings:
     """Parse config file and command-line arguments into display parameters."""
 
-    def __init__(self):  # noqa: C901, PLR0912, PLR0915
+    def __init__(self) -> None:  # noqa: C901, PLR0912, PLR0915
         """Load defaults, then overlay rcfile and CLI arguments."""
         self.start_time = time.monotonic()
         self.end_time = 0
@@ -645,7 +656,7 @@ class Settings:
             self.graph_chars = self.partial_lines
 
 
-def main():
+def main() -> None:
     """Parse arguments, read stdin, and render the histogram."""
     s = Settings()
     i = InputReader()
