@@ -21,10 +21,7 @@ import time
 from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING
-
-if TYPE_CHECKING:
-    from collections.abc import Callable
+from typing import NamedTuple
 
 DEFAULT_PALETTE = "0,0,32,35,34"
 DEFAULT_MAX_KEYS = 5000
@@ -115,31 +112,23 @@ def histogram_bar(  # noqa: PLR0913
 
 def write_hist(settings: Settings, stats: Stats, token_dict: Counter[str]) -> None:
     """Sort token_dict by frequency and print a histogram to stdout."""
+    # sort by (count, key) descending and select the top entries
     max_token_length = 0
-    output_dict = {}
-
-    item_count = 0
+    output_dict: dict[str, int] = {}
     max_value = 0
-    stats.total_values = int(stats.total_values)
-
-    # sort first by the value of a key, then by the key itself in case
-    # of a tie.  this allows us to create deterministic sorts when we have
-    # multiple entries in our histogram with the same frequency.
-    def value_key_compare(
-        token_counts: Counter[str],
-    ) -> Callable[[str], tuple[int | None, str]]:
-        return lambda key: (token_counts.get(key), key)
-
-    for key in sorted(token_dict, key=value_key_compare(token_dict), reverse=True):
+    for key in sorted(token_dict, key=lambda k: (token_dict[k], k), reverse=True):
         if not key:
             continue
         output_dict[key] = token_dict[key]
         max_token_length = max(max_token_length, len(key))
         max_value = max(max_value, output_dict[key])
-        item_count += 1
-        if item_count >= settings.height:
+        if len(output_dict) >= settings.height:
             break
 
+    if not output_dict:
+        return
+
+    # verbose timing stats
     stats.end_time = time.monotonic()
     elapsed_ms = (stats.end_time - stats.start_time) * 1000
     if settings.verbose:
@@ -154,36 +143,31 @@ def write_hist(settings: Settings, stats: Stats, token_dict: Counter[str]) -> No
         print(f"       histogram keys: {len(token_dict):,d}", file=sys.stderr)
         print(f"              runtime: {elapsed_ms:,.2f}ms", file=sys.stderr)
 
-    # the first entry will determine these values
-    histogram_width = 0
-    max_value_width = 0
-    max_percent_width = 0
+    # compute layout widths from the highest-frequency entry
+    first_value = next(iter(output_dict.values()))
+    max_value_width = len(str(first_value))
+    max_percent_width = len(f"({first_value / stats.total_values * 100:2.2f}%)")
+    # we always output a single histogram char at the end, so
+    # we output one less than actual number here
+    histogram_width = (
+        settings.width
+        - (max_token_length + 1)
+        - (max_value_width + 1)
+        - (max_percent_width + 1)
+        - 1
+    )
+
+    # header; key_colour goes on this line so piping stdout to sort
+    # works (no colour prefix on data lines)
+    print(
+        f"{'Key':>{max_token_length}}|{'Ct':<{max_value_width}} "
+        f"{'(Pct)':<{max_percent_width}} Histogram{settings.key_colour}",
+        file=sys.stderr,
+    )
+
+    # render bars
     keys = list(output_dict)
     for index, key in enumerate(keys):
-        if max_value_width == 0:
-            max_value_width = len(str(output_dict[key]))
-            max_percent_width = len(
-                f"({output_dict[key] / stats.total_values * 100:2.2f}%)"
-            )
-
-            # we always output a single histogram char at the end, so
-            # we output one less than actual number here
-            histogram_width = (
-                settings.width
-                - (max_token_length + 1)
-                - (max_value_width + 1)
-                - (max_percent_width + 1)
-                - 1
-            )
-
-            # output a header; key_colour goes on this line so piping
-            # stdout to sort works (no colour prefix on data lines)
-            print(
-                f"{'Key':>{max_token_length}}|{'Ct':<{max_value_width}} "
-                f"{'(Pct)':<{max_percent_width}} Histogram{settings.key_colour}",
-                file=sys.stderr,
-            )
-
         output_value = str(output_dict[key])
         percent = f"({output_dict[key] / stats.total_values * 100:2.2f}%)"
         bar = histogram_bar(
@@ -195,8 +179,7 @@ def write_hist(settings: Settings, stats: Stats, token_dict: Counter[str]) -> No
             histogram_char=settings.histogram_char,
             logarithmic=settings.logarithmic,
         )
-        # print key_colour at end of each line so that piping
-        # stdout to sort works (no colour prefix on data lines);
+        # key_colour at end of each line so piping stdout to sort works;
         # on the last line, reset to regular_colour instead
         end_colour = (
             settings.regular_colour if index == len(keys) - 1 else settings.key_colour
@@ -213,17 +196,8 @@ def _prune_keys(
     token_dict: Counter[str], settings: Settings, stats: Stats
 ) -> Counter[str]:
     """Keep only the top max_keys entries in the token dict."""
-    new_dict: Counter[str] = Counter()
-    keys_transferred = 0
-    for key in sorted(token_dict, key=token_dict.__getitem__, reverse=True):
-        if not key:
-            continue
-        new_dict[key] = token_dict[key]
-        keys_transferred += 1
-        if keys_transferred > settings.max_keys:
-            break
     stats.prune_count += 1
-    return new_dict
+    return Counter(dict(token_dict.most_common(settings.max_keys)))
 
 
 def tokenize_input(settings: Settings, stats: Stats) -> Counter[str]:
@@ -311,18 +285,23 @@ def read_pretallied_tokens(settings: Settings, stats: Stats) -> Counter[str]:
     return token_dict
 
 
-def read_numerics(
-    settings: Settings, stats: Stats
-) -> tuple[list[float], float, float, int]:
-    """Read raw numbers from stdin and return graph data.
+class NumericData(NamedTuple):
+    """Data returned by read_numerics for rendering a numeric graph."""
 
-    Returns (values, max_value, total_value, max_width).
-    """
+    values: list[float]
+    max_value: float
+    total_value: float
+    max_width: int
+
+
+def read_numerics(settings: Settings, stats: Stats) -> NumericData:
+    """Read raw numbers from stdin and return graph data."""
     last_value = 0.0
     max_value = 0.0
     max_width = 0
     total_value = 0.0
     output_list: list[float] = []
+    first_line = True
     for raw_line in sys.stdin:
         try:
             numeric = float(raw_line.rstrip())
@@ -331,7 +310,7 @@ def read_numerics(
 
         graph_value = 0.0
         if settings.numeric_mode == "mon":
-            if stats.total_objects > 0:
+            if not first_line:
                 graph_value = numeric - last_value
             last_value = numeric
         else:
@@ -343,26 +322,21 @@ def read_numerics(
 
         total_value += graph_value
 
-        if stats.total_objects > 0:
+        if not first_line:
             output_list.append(graph_value)
+        first_line = False
         stats.total_objects += 1
 
-    return output_list, max_value, total_value, max_width
+    return NumericData(output_list, max_value, total_value, max_width)
 
 
-def render_numeric_graph(
-    settings: Settings,
-    values: list[float],
-    max_value: float,
-    total_value: float,
-    max_width: int,
-) -> None:
+def render_numeric_graph(settings: Settings, data: NumericData) -> None:
     """Print a simple bar graph for numeric values."""
-    for value in values:
-        percent = f"({value / total_value * 100:2.2f}%)"
+    for value in data.values:
+        percent = f"({value / data.total_value * 100:2.2f}%)"
         bar = histogram_bar(
-            settings.width - 11 - max_width,
-            max_value,
+            settings.width - 11 - data.max_width,
+            data.max_value,
             value,
             char_width=settings.char_width,
             graph_chars=settings.graph_chars,
@@ -370,7 +344,7 @@ def render_numeric_graph(
             logarithmic=settings.logarithmic,
         )
         print(
-            f"{settings.key_colour}{int(value):>{max_width}}"
+            f"{settings.key_colour}{int(value):>{data.max_width}}"
             f"{settings.percent_colour}{percent:>9} "
             f"{settings.graph_colour}{bar}{settings.regular_colour}"
         )
@@ -666,8 +640,8 @@ def main() -> None:
         token_dict = read_pretallied_tokens(settings, stats)
         write_hist(settings, stats, token_dict)
     elif settings.numeric_mode is not None:
-        values, max_value, total_value, max_width = read_numerics(settings, stats)
-        render_numeric_graph(settings, values, max_value, total_value, max_width)
+        numeric_data = read_numerics(settings, stats)
+        render_numeric_graph(settings, numeric_data)
     else:
         token_dict = tokenize_input(settings, stats)
         write_hist(settings, stats, token_dict)
