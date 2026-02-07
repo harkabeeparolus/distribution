@@ -12,8 +12,8 @@ A command-line tool for generating character-based histograms and graphs in the 
 # Run directly
 echo "data" | ./distribution.py [options]
 
-# Run tests (from tests/ directory)
-cd tests && distribution=../distribution.py ./runTests.sh
+# Run all tests (both Perl and Python)
+./runTests.sh
 
 # Format
 ruff format distribution.py
