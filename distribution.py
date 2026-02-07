@@ -109,6 +109,9 @@ class Histogram:
         max_val = 0
         s.total_values = int(s.total_values)
 
+        # sort first by the value of a key, then by the key itself in case
+        # of a tie.  this allows us to create deterministic sorts when we have
+        # multiple entries in our histogram with the same frequency.
         def value_key_compare(
             d: Counter[str],
         ) -> Callable[[str], tuple[int | None, str]]:
@@ -175,6 +178,9 @@ class Histogram:
                 out_val = str(output_dict[k])
                 pct = f"({output_dict[k] / s.total_values * 100:2.2f}%)"
                 bar = self.histogram_bar(s, hist_width, max_val, output_dict[k])
+                # print key_colour at end of each line so that piping
+                # stdout to sort works (no colour prefix on data lines);
+                # on the last line, reset to regular_colour instead
                 end_colour = s.regular_colour if i == len(keys) - 1 else s.key_colour
                 print(
                     str(k).rjust(max_token_len)
@@ -532,6 +538,7 @@ class Settings:
         self.logarithmic = False
         self.num_only = None
         self.verbose = False
+        # whether to parse input into bins, or just present pre-tallied data
         self.graph_values = ""
         self.size = ""
         self.tokenize = ""
@@ -609,7 +616,8 @@ class Settings:
             elif self.num_only[0] in ("a", "n"):
                 self.num_only = "abs"
 
-        # override variables if they were explicitly given
+        # if they passed --width or --height, they probably meant it more
+        # than defaults or the --size parameter - so apply this last
         if self.width_arg != 0:
             self.width = self.width_arg
         if self.height_arg != 0:
