@@ -122,7 +122,7 @@ class Histogram:
             # off-by-one death the script sometimes suffers without it.
             if k:
                 output_dict[k] = token_dict[k]
-                max_token_len = max(max_token_len, len(str(k)))
+                max_token_len = max(max_token_len, len(k))
                 max_val = max(max_val, output_dict[k])
                 num_items += 1
                 if num_items >= s.height:
@@ -164,14 +164,8 @@ class Histogram:
                     # output a header; key_colour goes on this line so piping
                     # stdout to sort works (no colour prefix on data lines)
                     print(
-                        "Key".rjust(max_token_len)
-                        + "|"
-                        + "Ct".ljust(max_value_width)
-                        + " "
-                        + "(Pct)".ljust(max_pct_width)
-                        + " "
-                        + "Histogram"
-                        + s.key_colour,
+                        f"{'Key':>{max_token_len}}|{'Ct':<{max_value_width}} "
+                        f"{'(Pct)':<{max_pct_width}} Histogram{s.key_colour}",
                         file=sys.stderr,
                     )
 
@@ -183,18 +177,10 @@ class Histogram:
                 # on the last line, reset to regular_colour instead
                 end_colour = s.regular_colour if i == len(keys) - 1 else s.key_colour
                 print(
-                    str(k).rjust(max_token_len)
-                    + s.regular_colour
-                    + "|"
-                    + s.ct_colour
-                    + out_val.rjust(max_value_width)
-                    + " "
-                    + s.pct_colour
-                    + pct.rjust(max_pct_width)
-                    + " "
-                    + s.graph_colour
-                    + bar
-                    + end_colour
+                    f"{k:>{max_token_len}}{s.regular_colour}|"
+                    f"{s.ct_colour}{out_val:>{max_value_width}} "
+                    f"{s.pct_colour}{pct:>{max_pct_width}} "
+                    f"{s.graph_colour}{bar}{end_colour}"
                 )
 
 
@@ -361,14 +347,9 @@ class InputReader:
             pct = f"({k / sum_val * 100:2.2f}%)"
             bar = h.histogram_bar(s, s.width - 11 - max_width, max_val, k)
             print(
-                s.key_colour
-                + str(int(k)).rjust(max_width)
-                + s.pct_colour
-                + pct.rjust(9)
-                + " "
-                + s.graph_colour
-                + bar
-                + s.regular_colour
+                f"{s.key_colour}{int(k):>{max_width}}"
+                f"{s.pct_colour}{pct:>9} "
+                f"{s.graph_colour}{bar}{s.regular_colour}"
             )
 
 
@@ -376,7 +357,6 @@ def _build_parser() -> DistributionParser:
     """Build the argument parser with all options defined."""
     parser = DistributionParser(
         fromfile_prefix_chars="@",
-        prog=script_name,
         usage="<commandWithOutput> | %(prog)s [options]",
         description=__doc__,
         epilog=(
@@ -691,7 +671,5 @@ def main() -> None:
     h.write_hist(s, i.token_dict)
 
 
-# what is this magic?
-script_name = str(Path(sys.argv[0]).name)
 if __name__ == "__main__":
     main()
