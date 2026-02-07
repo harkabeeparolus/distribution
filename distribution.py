@@ -595,11 +595,9 @@ class Settings:
                 size_presets[name] = dimensions
         if self.size in ("full", "fl", "f"):
             self.width, self.height = shutil.get_terminal_size()
-            self.width = int(self.width)
-            self.height = int(self.height) - 3
-            # need room for the verbosity output
+            self.height -= 3
             if self.verbose:
-                self.height -= 4
+                self.height -= 4  # need room for the verbosity output
             # ensure some minimum size
             self.width = max(self.width, 40)
             self.height = max(self.height, 10)
