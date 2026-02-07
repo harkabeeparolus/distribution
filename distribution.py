@@ -58,6 +58,7 @@ class Histogram:
         return_bar = ""
 
         # first case is partial-width chars
+        one_char = ""
         if s.char_width < 1:
             zero_char = s.graph_chars[-1]
         elif len(s.histogram_char) > 1:
@@ -129,6 +130,7 @@ class Histogram:
             print(f"              runtime: {elapsed_ms:,.2f}ms", file=sys.stderr)
 
         # the first entry will determine these values
+        hist_width = 0
         max_value_width = 0
         max_pct_width = 0
         keys = list(output_dict)
