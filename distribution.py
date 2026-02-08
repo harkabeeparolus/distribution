@@ -38,6 +38,10 @@ class Stats:
     end_time: float = 0.0
 
 
+class EmptyInputError(Exception):
+    """Raised when there is no data to display."""
+
+
 class DistributionParser(argparse.ArgumentParser):
     """Strip comments and blank lines from @-included config files."""
 
@@ -128,12 +132,8 @@ def write_hist(settings: Settings, stats: Stats, token_dict: Counter[str]) -> No
             break
 
     if not output_dict:
-        if stats.total_objects > 0:
-            print("All input filtered! ", end="", file=sys.stderr)
-        else:
-            print("No input! ", end="", file=sys.stderr)
-        print("No histogram for you.", file=sys.stderr)
-        sys.exit(255)
+        reason = "All input filtered" if stats.total_objects > 0 else "No input"
+        raise EmptyInputError(reason)
 
     # verbose timing stats
     stats.end_time = time.monotonic()
@@ -654,15 +654,19 @@ def main() -> None:
     settings = Settings()
     stats = Stats()
 
-    if settings.graph_values:
-        token_dict = read_pretallied_tokens(settings, stats)
-        write_hist(settings, stats, token_dict)
-    elif settings.numeric_mode is not None:
-        numeric_data = read_numerics(settings, stats)
-        render_numeric_graph(settings, numeric_data)
-    else:
-        token_dict = tokenize_input(settings, stats)
-        write_hist(settings, stats, token_dict)
+    try:
+        if settings.graph_values:
+            token_dict = read_pretallied_tokens(settings, stats)
+            write_hist(settings, stats, token_dict)
+        elif settings.numeric_mode is not None:
+            numeric_data = read_numerics(settings, stats)
+            render_numeric_graph(settings, numeric_data)
+        else:
+            token_dict = tokenize_input(settings, stats)
+            write_hist(settings, stats, token_dict)
+    except EmptyInputError as exc:
+        print(f"{exc}! No histogram for you.", file=sys.stderr)
+        sys.exit(255)
 
 
 if __name__ == "__main__":
