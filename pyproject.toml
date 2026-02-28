@@ -1,4 +1,15 @@
-[lint]
+[project]
+name = "distribution"
+version = "0.1.0"
+requires-python = ">=3.10"
+
+[dependency-groups]
+dev = ["pytest>=8", "mypy", "ruff"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff.lint]
 select = ["ALL"]
 ignore = [
     "COM812",  # conflicts with ruff format
@@ -8,3 +19,6 @@ ignore = [
     "T20",     # print statements — this is a CLI tool
     "TD",      # TODO/FIXME format
 ]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["INP001", "S"]
