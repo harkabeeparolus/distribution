@@ -21,10 +21,12 @@ import time
 from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import NamedTuple
+from typing import NamedTuple, TextIO
 
 DEFAULT_PALETTE = "0,0,32,35,34"
 DEFAULT_MAX_KEYS = 5000
+PARTIAL_BLOCKS = ("▏", "▎", "▍", "▌", "▋", "▊", "▉", "█")  # char=pb
+PARTIAL_LINES = ("╸", "╾", "━")  # char=pl
 
 
 @dataclass
@@ -134,13 +136,25 @@ def _hist_layout(
     )
 
 
-def write_hist(settings: Settings, stats: Stats, token_dict: Counter[str]) -> None:
+def write_hist(  # pylint: disable=too-many-locals
+    settings: Settings,
+    stats: Stats,
+    token_dict: Counter[str],
+    *,
+    stdout: TextIO | None = None,
+    stderr: TextIO | None = None,
+) -> None:
     """Sort token_dict by frequency and print a histogram to stdout.
 
     Sorts by (count, key) descending so ties are broken deterministically
     by key name.  Headers go to stderr; data lines carry no colour prefix
     so output can be piped to sort.
     """
+    if stdout is None:
+        stdout = sys.stdout
+    if stderr is None:
+        stderr = sys.stderr
+
     output_dict: dict[str, int] = {}
     max_value = 0
     for key in sorted(token_dict, key=lambda k: (token_dict[k], k), reverse=True):
@@ -164,14 +178,14 @@ def write_hist(settings: Settings, stats: Stats, token_dict: Counter[str]) -> No
     if settings.verbose:
         print(
             f"tokens/lines examined: {stats.total_objects:,d}",
-            file=sys.stderr,
+            file=stderr,
         )
         print(
             f" tokens/lines matched: {stats.total_values:,d}",
-            file=sys.stderr,
+            file=stderr,
         )
-        print(f"       histogram keys: {len(token_dict):,d}", file=sys.stderr)
-        print(f"              runtime: {elapsed_ms:,.2f}ms", file=sys.stderr)
+        print(f"       histogram keys: {len(token_dict):,d}", file=stderr)
+        print(f"              runtime: {elapsed_ms:,.2f}ms", file=stderr)
 
     # compute layout widths from the highest-frequency entry
     layout = _hist_layout(output_dict, stats.total_values, settings.width)
@@ -179,7 +193,7 @@ def write_hist(settings: Settings, stats: Stats, token_dict: Counter[str]) -> No
     print(
         f"{'Key':>{layout.max_token_length}}|{'Ct':<{layout.max_value_width}} "
         f"{'(Pct)':<{layout.max_percent_width}} Histogram{settings.key_colour}",
-        file=sys.stderr,
+        file=stderr,
     )
 
     # render bars
@@ -205,7 +219,8 @@ def write_hist(settings: Settings, stats: Stats, token_dict: Counter[str]) -> No
             f"{key:>{layout.max_token_length}}{settings.regular_colour}|"
             f"{settings.count_colour}{output_value:>{layout.max_value_width}} "
             f"{settings.percent_colour}{percent:>{layout.max_percent_width}} "
-            f"{settings.graph_colour}{bar}{end_colour}"
+            f"{settings.graph_colour}{bar}{end_colour}",
+            file=stdout,
         )
 
 
@@ -217,13 +232,24 @@ def _prune_keys(
     return Counter(dict(token_dict.most_common(settings.max_keys)))
 
 
-def tokenize_input(settings: Settings, stats: Stats) -> Counter[str]:
+def tokenize_input(
+    settings: Settings,
+    stats: Stats,
+    *,
+    stream: TextIO | None = None,
+    stderr: TextIO | None = None,
+) -> Counter[str]:
     """Split stdin lines into tokens and count their frequency.
 
     Splits on whitespace or word boundaries by default, but the user
     can specify any regexp. Likewise, matching defaults to everything
     but can be restricted to all-alpha or all-numeric tokens.
     """
+    if stream is None:
+        stream = sys.stdin
+    if stderr is None:
+        stderr = sys.stderr
+
     token_dict: Counter[str] = Counter()
 
     # docs say these are cached, but i got about 2x speed boost
@@ -235,7 +261,7 @@ def tokenize_input(settings: Settings, stats: Stats) -> Counter[str]:
     next_stat = time.time() + settings.stat_interval
 
     prune_objects = 0
-    for raw_line in sys.stdin:
+    for raw_line in stream:
         tokens = (
             tokenize_pattern.split(raw_line.rstrip("\n"))
             if should_tokenize
@@ -259,24 +285,28 @@ def tokenize_input(settings: Settings, stats: Stats) -> Counter[str]:
             print(
                 f"tokens/lines examined: {stats.total_objects:,d} ; hash prunes: {stats.prune_count:,d}...",
                 end="\r",
-                file=sys.stderr,
+                file=stderr,
             )
             next_stat = time.time() + settings.stat_interval
 
     return token_dict
 
 
-def read_pretallied_tokens(settings: Settings, stats: Stats) -> Counter[str]:
+def read_pretallied_tokens(
+    settings: Settings, stats: Stats, *, stream: TextIO | None = None
+) -> Counter[str]:
     """Read pre-counted key/value pairs from stdin.
 
     Input is already tallied (as in `du -sb`). vk means the number
     is first and key second; kv means key first and number second.
     """
+    if stream is None:
+        stream = sys.stdin
     token_dict: Counter[str] = Counter()
     value_key_pattern = re.compile(r"^\s*(\d+)\s+(.+)$")
     key_value_pattern = re.compile(r"^(.+?)\s+(\d+)$")
     if settings.graph_values == "vk":
-        for line in sys.stdin:
+        for line in stream:
             match = value_key_pattern.match(line)
             if not match:
                 print(
@@ -288,7 +318,7 @@ def read_pretallied_tokens(settings: Settings, stats: Stats) -> Counter[str]:
             stats.total_values += int(match.group(1))
             stats.total_objects += 1
     elif settings.graph_values == "kv":
-        for line in sys.stdin:
+        for line in stream:
             match = key_value_pattern.match(line)
             if not match:
                 print(
@@ -311,7 +341,9 @@ class NumericData(NamedTuple):
     max_width: int
 
 
-def read_numerics(settings: Settings, stats: Stats) -> NumericData:
+def read_numerics(
+    settings: Settings, stats: Stats, *, stream: TextIO | None = None
+) -> NumericData:
     """Read raw numbers from stdin and return graph data.
 
     Unlike the main histogram pipeline, numeric mode is a simpler
@@ -319,13 +351,15 @@ def read_numerics(settings: Settings, stats: Stats) -> NumericData:
     or per-key percentages.  All values are graphed — --height and
     --size are intentionally ignored so nothing is thrown away.
     """
+    if stream is None:
+        stream = sys.stdin
     last_value = 0.0
     max_value = 0.0
     max_width = 0
     total_value = 0.0
     output_list: list[float] = []
     first_line = True
-    for raw_line in sys.stdin:
+    for raw_line in stream:
         try:
             numeric = float(raw_line.rstrip())
         except ValueError:
@@ -353,12 +387,16 @@ def read_numerics(settings: Settings, stats: Stats) -> NumericData:
     return NumericData(output_list, max_value, total_value, max_width)
 
 
-def render_numeric_graph(settings: Settings, data: NumericData) -> None:
+def render_numeric_graph(
+    settings: Settings, data: NumericData, *, stdout: TextIO | None = None
+) -> None:
     """Print a simple bar graph for numeric values.
 
     This is deliberately simpler than write_hist: no key labels, no
     height limit, no sorting.  Every input value gets a bar.
     """
+    if stdout is None:
+        stdout = sys.stdout
     for value in data.values:
         percent = f"({value / data.total_value * 100:2.2f}%)"
         bar = histogram_bar(
@@ -370,7 +408,8 @@ def render_numeric_graph(settings: Settings, data: NumericData) -> None:
         print(
             f"{settings.key_colour}{int(value):>{data.max_width}}"
             f"{settings.percent_colour}{percent:>9} "
-            f"{settings.graph_colour}{bar}{settings.regular_colour}"
+            f"{settings.graph_colour}{bar}{settings.regular_colour}",
+            file=stdout,
         )
 
 
@@ -523,42 +562,41 @@ def _parse_args() -> argparse.Namespace:
     return parser.parse_args(namespace=parser.parse_args(defaults))
 
 
+@dataclass
 class Settings:
-    """Parse config file and command-line arguments into display parameters."""
+    """Display parameters for histogram rendering."""
 
-    def __init__(self) -> None:
-        """Load defaults, then overlay rcfile and CLI arguments."""
-        args = _parse_args()
+    width: int = 80
+    height: int = 15
+    histogram_char: str = "-"
+    char_width: float = 1.0
+    graph_chars: list[str] = field(default_factory=list)
+    logarithmic: bool = False
+    verbose: bool = False
+    colourised_output: bool = False
+    colour_palette: str = DEFAULT_PALETTE
+    regular_colour: str = ""
+    key_colour: str = ""
+    count_colour: str = ""
+    percent_colour: str = ""
+    graph_colour: str = ""
+    tokenize: str = ""
+    match_regexp: str = "."
+    graph_values: str = ""
+    numeric_mode: str | None = None
+    max_keys: int = DEFAULT_MAX_KEYS
+    stat_interval: float = 1.0
+    key_prune_interval: int = 1500000
 
-        # display dimensions (overridden by _resolve_size)
-        self.width = 80
-        self.height = 15
-        # fields not controlled by argparse
-        self.stat_interval = 1.0
-        self.key_prune_interval = 1500000
-        self.regular_colour = ""
-        self.key_colour = ""
-        self.count_colour = ""
-        self.percent_colour = ""
-        self.graph_colour = ""
-        self.char_width = 1.0
-        self.graph_chars: list[str] = []
-        self.partial_blocks = ["▏", "▎", "▍", "▌", "▋", "▊", "▉", "█"]  # char=pb
-        self.partial_lines = ["╸", "╾", "━"]  # char=pl
+    def __post_init__(self) -> None:
+        """Resolve aliases, histogram char, colours, and max_keys floor."""
+        self._resolve_aliases()
+        self._resolve_histogram_char()
+        self._resolve_colours()
+        self.max_keys = max(self.max_keys, self.height + 3000)
 
-        # fields from argparse
-        self.colourised_output: bool = args.color or args.palette != DEFAULT_PALETTE
-        self.graph_values: str = args.graph
-        self.logarithmic: bool = args.logarithmic
-        self.numeric_mode: str | None = args.numonly
-        self.verbose: bool = args.verbose
-        self.max_keys: int = args.keys
-        self.histogram_char: str = args.char
-        self.tokenize: str = args.tokenize
-        self.match_regexp: str = args.match
-        self.colour_palette: str = args.palette
-
-        # resolve tokenize/match aliases into actual regexps
+    def _resolve_aliases(self) -> None:
+        """Expand tokenize/match/numeric_mode aliases into actual values."""
         tokenize_aliases = {"white": r"\s+", "word": r"\W"}
         if self.tokenize in tokenize_aliases:
             self.tokenize = tokenize_aliases[self.tokenize]
@@ -575,46 +613,6 @@ class Settings:
                 self.numeric_mode = "mon"
             elif self.numeric_mode[0] in ("a", "n"):
                 self.numeric_mode = "abs"
-
-        self._resolve_size(args.size, args.width, args.height)
-        self._resolve_colours()
-        self._resolve_histogram_char()
-
-    def _resolve_size(self, size: str, width_arg: int, height_arg: int) -> None:
-        """Apply size presets, terminal size, and explicit width/height overrides."""
-        size_presets = {}
-        for names, dimensions in [
-            (("small", "sm", "s"), (60, 10)),
-            (("medium", "med", "m"), (100, 20)),
-            (("large", "lg", "l"), (140, 35)),
-        ]:
-            for name in names:
-                size_presets[name] = dimensions
-        if size in ("full", "fl", "f"):
-            self.width, self.height = shutil.get_terminal_size()
-            self.height -= 3
-            if self.verbose:
-                self.height -= 4  # need room for the verbosity output
-            self.width = max(self.width, 40)
-            self.height = max(self.height, 10)
-        elif size in size_presets:
-            self.width, self.height = size_presets[size]
-
-        # explicit --width/--height override everything
-        if width_arg != 0:
-            self.width = width_arg
-        if height_arg != 0:
-            self.height = height_arg
-
-        # max_keys should be at least a few thousand greater than height to reduce odds
-        # of throwing away high-count values that appear sparingly in the data
-        if self.max_keys < self.height + 3000:
-            self.max_keys = self.height + 3000
-            if self.verbose:
-                print(
-                    f"Updated max_keys to {self.max_keys} (height + 3000)",
-                    file=sys.stderr,
-                )
 
     def _resolve_colours(self) -> None:
         """Expand the colour palette string into ANSI escape codes."""
@@ -649,15 +647,73 @@ class Settings:
         # sub-full character width graphing systems
         if self.histogram_char == "pb":
             self.char_width = 0.125
-            self.graph_chars = self.partial_blocks
+            self.graph_chars = list(PARTIAL_BLOCKS)
         elif self.histogram_char == "pl":
             self.char_width = 0.3334
-            self.graph_chars = self.partial_lines
+            self.graph_chars = list(PARTIAL_LINES)
+
+
+def settings_from_args() -> Settings:
+    """Create Settings from command-line arguments and config file."""
+    args = _parse_args()
+
+    width = 80
+    height = 15
+    size_presets: dict[str, tuple[int, int]] = {}
+    for names, dimensions in [
+        (("small", "sm", "s"), (60, 10)),
+        (("medium", "med", "m"), (100, 20)),
+        (("large", "lg", "l"), (140, 35)),
+    ]:
+        for name in names:
+            size_presets[name] = dimensions
+
+    if args.size in ("full", "fl", "f"):
+        width, height = shutil.get_terminal_size()
+        height -= 3
+        if args.verbose:
+            height -= 4  # need room for the verbosity output
+        width = max(width, 40)
+        height = max(height, 10)
+    elif args.size in size_presets:
+        width, height = size_presets[args.size]
+
+    # explicit --width/--height override everything
+    if args.width != 0:
+        width = args.width
+    if args.height != 0:
+        height = args.height
+
+    colourised_output = args.color or args.palette != DEFAULT_PALETTE
+
+    settings = Settings(
+        width=width,
+        height=height,
+        histogram_char=args.char,
+        logarithmic=args.logarithmic,
+        verbose=args.verbose,
+        colourised_output=colourised_output,
+        colour_palette=args.palette,
+        tokenize=args.tokenize,
+        match_regexp=args.match,
+        graph_values=args.graph,
+        numeric_mode=args.numonly,
+        max_keys=args.keys,
+    )
+
+    # max_keys was silently floored by __post_init__; report if verbose
+    if args.keys < settings.max_keys and settings.verbose:
+        print(
+            f"Updated max_keys to {settings.max_keys} (height + 3000)",
+            file=sys.stderr,
+        )
+
+    return settings
 
 
 def main() -> None:
     """Parse arguments, read stdin, and render the histogram."""
-    settings = Settings()
+    settings = settings_from_args()
     stats = Stats()
 
     try:
