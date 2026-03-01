@@ -16,6 +16,7 @@ from distribution import (  # noqa: E402
     Stats,
     histogram_bar,
     read_numerics,
+    read_pretallied_tokens,
     render_numeric_graph,
 )
 
@@ -72,8 +73,11 @@ class TestReadNumerics:
             settings, stats, stream=self._make_stream(["10", "20", "30"])
         )
         expected_total = 10.0 + 20.0 + 30.0
+        expected_max = 30.0
         assert data.values == [10.0, 20.0, 30.0]
         assert data.total_value == expected_total
+        assert data.max_value == expected_max
+        assert data.max_width == len(str(expected_max))
 
     def test_mon_mode_skips_first_value(self) -> None:
         """Mon mode computes differences, so the first value has no predecessor."""
@@ -83,8 +87,44 @@ class TestReadNumerics:
             settings, stats, stream=self._make_stream(["10", "30", "60"])
         )
         expected_total = 20.0 + 30.0
+        expected_max = 30.0
         assert data.values == [20.0, 30.0]
         assert data.total_value == expected_total
+        assert data.max_value == expected_max
+        assert data.max_width == len(str(expected_max))
+
+    def test_empty_input(self) -> None:
+        """Empty stream produces empty NumericData."""
+        settings = Settings(numeric_mode="abs")
+        stats = Stats()
+        data = read_numerics(settings, stats, stream=io.StringIO(""))
+        assert data == NumericData([], 0.0, 0.0, 0)
+
+
+class TestReadPretalliedTokens:
+    """Tests for read_pretallied_tokens() aggregate stats."""
+
+    def test_vk_mode(self) -> None:
+        """Vk mode parses 'value key' lines and accumulates stats."""
+        settings = Settings(graph_values="vk")
+        stats = Stats()
+        stream = io.StringIO("5 foo\n3 bar\n")
+        token_dict = read_pretallied_tokens(settings, stats, stream=stream)
+        expected_sum = 5 + 3
+        expected_lines = 2
+        assert dict(token_dict) == {"foo": 5, "bar": 3}
+        assert stats.value_sum == expected_sum
+        assert stats.total_objects == expected_lines
+
+    def test_duplicate_keys(self) -> None:
+        """Duplicate keys should have their values summed."""
+        settings = Settings(graph_values="vk")
+        stats = Stats()
+        stream = io.StringIO("2 x\n3 x\n")
+        token_dict = read_pretallied_tokens(settings, stats, stream=stream)
+        expected_merged = 2 + 3
+        assert token_dict["x"] == expected_merged
+        assert stats.value_sum == expected_merged
 
 
 class TestRenderNumericGraph:

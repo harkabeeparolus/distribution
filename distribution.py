@@ -330,9 +330,9 @@ def read_pretallied_tokens(
             continue
         value = int(match.group(value_group))
         token_dict[match.group(key_group)] += value
-        stats.value_sum += value
         stats.total_objects += 1
 
+    stats.value_sum = sum(token_dict.values())
     return token_dict
 
 
@@ -358,9 +358,6 @@ def read_numerics(
     if stream is None:
         stream = sys.stdin
     last_value = 0.0
-    max_value = 0.0
-    max_width = 0
-    total_value = 0.0
     output_list: list[float] = []
     first_line = True
     for raw_line in stream:
@@ -377,18 +374,18 @@ def read_numerics(
         else:
             graph_value = numeric
 
-        if graph_value > max_value:
-            max_value = graph_value
-            max_width = len(str(graph_value))
-
-        total_value += graph_value
-
         if settings.numeric_mode != "mon" or not first_line:
             output_list.append(graph_value)
         first_line = False
         stats.total_objects += 1
 
-    return NumericData(output_list, max_value, total_value, max_width)
+    max_value = max(output_list, default=0.0)
+    return NumericData(
+        output_list,
+        max_value,
+        sum(output_list),
+        len(str(max_value)) if output_list else 0,
+    )
 
 
 def render_numeric_graph(
