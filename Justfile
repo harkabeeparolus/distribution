@@ -1,3 +1,5 @@
+export PYTHONWARNDEFAULTENCODING := ""
+
 check: lint typing tests
 
 lint:

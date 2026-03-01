@@ -16,7 +16,6 @@ bad-names = ["foo", "baz", "toto", "tutu", "tata"]
 disable = [
     "C0301",  # line-too-long — ruff format handles line length
     "W0511",  # fixme — intentional FIXME comments the author wants to keep
-    "R0913",  # too-many-arguments — histogram_bar uses keyword-only args; already ruff-suppressed
     "R0902",  # too-many-instance-attributes — Settings is a config class
     "R0903",  # too-few-public-methods — Settings is a data/config class, not an OOP service
 ]

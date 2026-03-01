@@ -53,15 +53,11 @@ class DistributionParser(argparse.ArgumentParser):
         return []
 
 
-def histogram_bar(  # noqa: PLR0913
+def histogram_bar(
     histogram_width: int,
     max_value: float,
     bar_value: float,
-    *,
-    char_width: float,
-    graph_chars: list[str],
-    histogram_char: str,
-    logarithmic: bool,
+    settings: Settings,
 ) -> str:
     """Return a histogram bar string scaled to the given value.
 
@@ -73,16 +69,16 @@ def histogram_bar(  # noqa: PLR0913
     bar = ""
 
     one_char = ""
-    if char_width < 1:
-        zero_char = graph_chars[-1]
-    elif len(histogram_char) > 1:
-        zero_char = histogram_char[0]
-        one_char = histogram_char[1]
+    if settings.char_width < 1:
+        zero_char = settings.graph_chars[-1]
+    elif len(settings.histogram_char) > 1:
+        zero_char = settings.histogram_char[0]
+        one_char = settings.histogram_char[1]
     else:
-        zero_char = histogram_char
-        one_char = histogram_char
+        zero_char = settings.histogram_char
+        one_char = settings.histogram_char
 
-    if logarithmic:
+    if settings.logarithmic:
         max_log = math.log(max_value)
         bar_log = math.log(bar_value) if bar_value > 0 else 0
         integer_width = int(bar_log / max_log * histogram_width)
@@ -95,16 +91,16 @@ def histogram_bar(  # noqa: PLR0913
 
     # FIXME: The remainder partial char printed does not take into  # noqa: FIX001
     # account logarithmic scale (can humans notice?).
-    if char_width == 1:
+    if settings.char_width == 1:
         bar += one_char
-    elif char_width < 1:
-        if remainder_width > char_width:
+    elif settings.char_width < 1:
+        if remainder_width > settings.char_width:
             # high-resolution: figure out what partial-width char to use
-            which_char = int(remainder_width / char_width)
-            bar += graph_chars[which_char]
+            which_char = int(remainder_width / settings.char_width)
+            bar += settings.graph_chars[which_char]
         else:
             # minimum-width character so we always see something
-            bar += graph_chars[0]
+            bar += settings.graph_chars[0]
 
     return bar
 
@@ -195,10 +191,7 @@ def write_hist(settings: Settings, stats: Stats, token_dict: Counter[str]) -> No
             layout.histogram_width,
             max_value,
             output_dict[key],
-            char_width=settings.char_width,
-            graph_chars=settings.graph_chars,
-            histogram_char=settings.histogram_char,
-            logarithmic=settings.logarithmic,
+            settings,
         )
         # last line resets to regular_colour; all others continue key_colour.
         # FIXME: even with these colour-placement antics, one key will  # noqa: FIX001
@@ -372,10 +365,7 @@ def render_numeric_graph(settings: Settings, data: NumericData) -> None:
             settings.width - 11 - data.max_width,
             data.max_value,
             value,
-            char_width=settings.char_width,
-            graph_chars=settings.graph_chars,
-            histogram_char=settings.histogram_char,
-            logarithmic=settings.logarithmic,
+            settings,
         )
         print(
             f"{settings.key_colour}{int(value):>{data.max_width}}"

@@ -4,12 +4,27 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
+from unittest.mock import patch
 
 # Make the project root importable so we can "import distribution".
 PROJECT_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_DIR))
 
-from distribution import histogram_bar  # noqa: E402
+from distribution import Settings, histogram_bar  # noqa: E402
+
+
+def _settings(**overrides: object) -> Settings:
+    """Build a Settings instance from CLI-equivalent keyword arguments."""
+    argv = ["distribution", "--rcfile=/dev/null"]
+    flag_map = {"logarithmic": "--logarithmic"}
+    arg_map = {"histogram_char": "--char"}
+    for key, value in overrides.items():
+        if key in flag_map and value:
+            argv.append(flag_map[key])
+        elif key in arg_map:
+            argv.extend([arg_map[key], str(value)])
+    with patch("sys.argv", argv):
+        return Settings()
 
 
 class TestHistogramBar:
@@ -17,23 +32,9 @@ class TestHistogramBar:
 
     def test_logarithmic_scaling(self) -> None:
         """Log scaling produces longer bars than linear for small values."""
-        linear = histogram_bar(
-            40,
-            1000,
-            10,
-            char_width=1.0,
-            graph_chars=[],
-            histogram_char="*",
-            logarithmic=False,
-        )
+        linear = histogram_bar(40, 1000, 10, _settings(histogram_char="*"))
         log = histogram_bar(
-            40,
-            1000,
-            10,
-            char_width=1.0,
-            graph_chars=[],
-            histogram_char="*",
-            logarithmic=True,
+            40, 1000, 10, _settings(histogram_char="*", logarithmic=True)
         )
         # log(10)/log(1000) ≈ 0.333 vs 10/1000 = 0.01
         assert len(log) > len(linear)
@@ -41,15 +42,7 @@ class TestHistogramBar:
     def test_partial_width_chars(self) -> None:
         """Fractional char_width selects partial-width Unicode glyphs."""
         partial_blocks = ["▏", "▎", "▍", "▌", "▋", "▊", "▉", "█"]
-        bar = histogram_bar(
-            20,
-            100,
-            50,
-            char_width=0.125,
-            graph_chars=partial_blocks,
-            histogram_char="pb",
-            logarithmic=False,
-        )
+        bar = histogram_bar(20, 100, 50, _settings(histogram_char="pb"))
         assert all(c in partial_blocks for c in bar)
         # 50/100 * 20 = 10 full blocks + 1 partial
         expected_full_blocks = 10
@@ -57,13 +50,5 @@ class TestHistogramBar:
 
     def test_zero_value(self) -> None:
         """Zero value produces a minimal single-char bar."""
-        bar = histogram_bar(
-            20,
-            100,
-            0,
-            char_width=1.0,
-            graph_chars=[],
-            histogram_char="*",
-            logarithmic=False,
-        )
+        bar = histogram_bar(20, 100, 0, _settings(histogram_char="*"))
         assert bar == "*"
