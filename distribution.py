@@ -109,6 +109,35 @@ def histogram_bar(  # noqa: PLR0913
     return bar
 
 
+class HistLayout(NamedTuple):
+    """Pre-computed column widths for histogram rendering."""
+
+    max_token_length: int
+    max_value_width: int
+    max_percent_width: int
+    histogram_width: int
+
+
+def _hist_layout(
+    output_dict: dict[str, int], total_values: int, display_width: int
+) -> HistLayout:
+    """Compute column widths from the filtered output dict."""
+    max_token_length = max(len(k) for k in output_dict)
+    first_value = next(iter(output_dict.values()))
+    max_value_width = len(str(first_value))
+    max_percent_width = len(f"({first_value / total_values * 100:2.2f}%)")
+    histogram_width = (
+        display_width
+        - (max_token_length + 1)
+        - (max_value_width + 1)
+        - (max_percent_width + 1)
+        - 1
+    )
+    return HistLayout(
+        max_token_length, max_value_width, max_percent_width, histogram_width
+    )
+
+
 def write_hist(settings: Settings, stats: Stats, token_dict: Counter[str]) -> None:
     """Sort token_dict by frequency and print a histogram to stdout.
 
@@ -116,7 +145,6 @@ def write_hist(settings: Settings, stats: Stats, token_dict: Counter[str]) -> No
     by key name.  Headers go to stderr; data lines carry no colour prefix
     so output can be piped to sort.
     """
-    max_token_length = 0
     output_dict: dict[str, int] = {}
     max_value = 0
     for key in sorted(token_dict, key=lambda k: (token_dict[k], k), reverse=True):
@@ -126,7 +154,6 @@ def write_hist(settings: Settings, stats: Stats, token_dict: Counter[str]) -> No
             # too: an empty key would render a broken row with no label.
             continue
         output_dict[key] = token_dict[key]
-        max_token_length = max(max_token_length, len(key))
         max_value = max(max_value, output_dict[key])
         if len(output_dict) >= settings.height:
             break
@@ -151,22 +178,11 @@ def write_hist(settings: Settings, stats: Stats, token_dict: Counter[str]) -> No
         print(f"              runtime: {elapsed_ms:,.2f}ms", file=sys.stderr)
 
     # compute layout widths from the highest-frequency entry
-    first_value = next(iter(output_dict.values()))
-    max_value_width = len(str(first_value))
-    max_percent_width = len(f"({first_value / stats.total_values * 100:2.2f}%)")
-    # we always output a single histogram char at the end, so
-    # we output one less than actual number here
-    histogram_width = (
-        settings.width
-        - (max_token_length + 1)
-        - (max_value_width + 1)
-        - (max_percent_width + 1)
-        - 1
-    )
+    layout = _hist_layout(output_dict, stats.total_values, settings.width)
 
     print(
-        f"{'Key':>{max_token_length}}|{'Ct':<{max_value_width}} "
-        f"{'(Pct)':<{max_percent_width}} Histogram{settings.key_colour}",
+        f"{'Key':>{layout.max_token_length}}|{'Ct':<{layout.max_value_width}} "
+        f"{'(Pct)':<{layout.max_percent_width}} Histogram{settings.key_colour}",
         file=sys.stderr,
     )
 
@@ -176,7 +192,7 @@ def write_hist(settings: Settings, stats: Stats, token_dict: Counter[str]) -> No
         output_value = str(output_dict[key])
         percent = f"({output_dict[key] / stats.total_values * 100:2.2f}%)"
         bar = histogram_bar(
-            histogram_width,
+            layout.histogram_width,
             max_value,
             output_dict[key],
             char_width=settings.char_width,
@@ -193,9 +209,9 @@ def write_hist(settings: Settings, stats: Stats, token_dict: Counter[str]) -> No
             settings.regular_colour if index == len(keys) - 1 else settings.key_colour
         )
         print(
-            f"{key:>{max_token_length}}{settings.regular_colour}|"
-            f"{settings.count_colour}{output_value:>{max_value_width}} "
-            f"{settings.percent_colour}{percent:>{max_percent_width}} "
+            f"{key:>{layout.max_token_length}}{settings.regular_colour}|"
+            f"{settings.count_colour}{output_value:>{layout.max_value_width}} "
+            f"{settings.percent_colour}{percent:>{layout.max_percent_width}} "
             f"{settings.graph_colour}{bar}{end_colour}"
         )
 

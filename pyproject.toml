@@ -4,10 +4,22 @@ version = "0.1.0"
 requires-python = ">=3.10"
 
 [dependency-groups]
-dev = ["pytest>=8", "mypy", "ruff"]
+dev = ["pytest>=8", "mypy", "ruff", "pylint"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[tool.pylint.basic]
+bad-names = ["foo", "baz", "toto", "tutu", "tata"]
+
+[tool.pylint."messages_control"]
+disable = [
+    "C0301",  # line-too-long — ruff format handles line length
+    "W0511",  # fixme — intentional FIXME comments the author wants to keep
+    "R0913",  # too-many-arguments — histogram_bar uses keyword-only args; already ruff-suppressed
+    "R0902",  # too-many-instance-attributes — Settings is a config class
+    "R0903",  # too-few-public-methods — Settings is a data/config class, not an OOP service
+]
 
 [tool.ruff.lint]
 select = ["ALL"]
