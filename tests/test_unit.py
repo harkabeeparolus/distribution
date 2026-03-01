@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import io
 import sys
 from pathlib import Path
 
@@ -9,7 +10,14 @@ from pathlib import Path
 PROJECT_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_DIR))
 
-from distribution import Settings, histogram_bar  # noqa: E402
+from distribution import (  # noqa: E402
+    NumericData,
+    Settings,
+    Stats,
+    histogram_bar,
+    read_numerics,
+    render_numeric_graph,
+)
 
 
 class TestHistogramBar:
@@ -37,3 +45,56 @@ class TestHistogramBar:
         """Zero value produces a minimal single-char bar."""
         bar = histogram_bar(20, 100, 0, Settings(histogram_char="*"))
         assert bar == "*"
+
+    def test_max_value_zero(self) -> None:
+        """All-zero input should not crash (max_value=0)."""
+        bar = histogram_bar(20, 0, 0, Settings())
+        assert bar == "-"
+
+    def test_max_value_zero_logarithmic(self) -> None:
+        """All-zero input in log mode should not crash."""
+        bar = histogram_bar(20, 0, 0, Settings(logarithmic=True))
+        assert bar == "-"
+
+
+class TestReadNumerics:
+    """Tests for read_numerics() covering abs and mon modes."""
+
+    @staticmethod
+    def _make_stream(values: list[str]) -> io.StringIO:
+        return io.StringIO("\n".join(values) + "\n")
+
+    def test_abs_mode_includes_first_value(self) -> None:
+        """Abs mode should include all values, including the first."""
+        settings = Settings(numeric_mode="abs")
+        stats = Stats()
+        data = read_numerics(
+            settings, stats, stream=self._make_stream(["10", "20", "30"])
+        )
+        expected_total = 10.0 + 20.0 + 30.0
+        assert data.values == [10.0, 20.0, 30.0]
+        assert data.total_value == expected_total
+
+    def test_mon_mode_skips_first_value(self) -> None:
+        """Mon mode computes differences, so the first value has no predecessor."""
+        settings = Settings(numeric_mode="mon")
+        stats = Stats()
+        data = read_numerics(
+            settings, stats, stream=self._make_stream(["10", "30", "60"])
+        )
+        expected_total = 20.0 + 30.0
+        assert data.values == [20.0, 30.0]
+        assert data.total_value == expected_total
+
+
+class TestRenderNumericGraph:
+    """Tests for render_numeric_graph() edge cases."""
+
+    def test_all_zero_values(self) -> None:
+        """All-zero input should not crash."""
+        settings = Settings(numeric_mode="abs")
+        data = NumericData([0, 0, 0], 0, 0, 1)
+        out = io.StringIO()
+        render_numeric_graph(settings, data, stdout=out)
+        expected_lines = 3
+        assert out.getvalue().count("\n") == expected_lines

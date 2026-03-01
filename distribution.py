@@ -34,7 +34,7 @@ class Stats:
     """Runtime counters accumulated during input processing."""
 
     total_objects: int = 0
-    total_values: int = 0
+    value_sum: int = 0
     prune_count: int = 0
     start_time: float = field(default_factory=time.monotonic)
     end_time: float = 0.0
@@ -78,6 +78,9 @@ def histogram_bar(
     else:
         zero_char = one_char = settings.histogram_char
 
+    if max_value == 0:
+        return one_char or zero_char
+
     if settings.logarithmic:
         max_log = math.log(max_value)
         bar_log = math.log(bar_value) if bar_value > 0 else 0
@@ -115,13 +118,13 @@ class HistLayout(NamedTuple):
 
 
 def _hist_layout(
-    output_dict: dict[str, int], total_values: int, display_width: int
+    output_dict: dict[str, int], value_sum: int, display_width: int
 ) -> HistLayout:
     """Compute column widths from the filtered output dict."""
     max_token_length = max(len(k) for k in output_dict)
     first_value = next(iter(output_dict.values()))
     max_value_width = len(str(first_value))
-    max_percent_width = len(f"({first_value / total_values * 100:2.2f}%)")
+    max_percent_width = len(f"({first_value / value_sum * 100:2.2f}%)")
     histogram_width = (
         display_width
         - (max_token_length + 1)
@@ -179,14 +182,14 @@ def write_hist(  # pylint: disable=too-many-locals
             file=stderr,
         )
         print(
-            f" tokens/lines matched: {stats.total_values:,d}",
+            f" tokens/lines matched: {stats.value_sum:,d}",
             file=stderr,
         )
         print(f"       histogram keys: {len(token_dict):,d}", file=stderr)
         print(f"              runtime: {elapsed_ms:,.2f}ms", file=stderr)
 
     # compute layout widths from the highest-frequency entry
-    layout = _hist_layout(output_dict, stats.total_values, settings.width)
+    layout = _hist_layout(output_dict, stats.value_sum, settings.width)
 
     print(
         f"{'Key':>{layout.max_token_length}}|{'Ct':<{layout.max_value_width}} "
@@ -198,7 +201,7 @@ def write_hist(  # pylint: disable=too-many-locals
     keys = list(output_dict)
     for index, key in enumerate(keys):
         output_value = str(output_dict[key])
-        percent = f"({output_dict[key] / stats.total_values * 100:2.2f}%)"
+        percent = f"({output_dict[key] / stats.value_sum * 100:2.2f}%)"
         bar = histogram_bar(
             layout.histogram_width,
             max_value,
@@ -270,7 +273,7 @@ def tokenize_input(
                 continue
             stats.total_objects += 1
             if match_pattern.match(token):
-                stats.total_values += 1
+                stats.value_sum += 1
                 prune_objects += 1
                 token_dict[token] += 1
 
@@ -291,7 +294,11 @@ def tokenize_input(
 
 
 def read_pretallied_tokens(
-    settings: Settings, stats: Stats, *, stream: TextIO | None = None
+    settings: Settings,
+    stats: Stats,
+    *,
+    stream: TextIO | None = None,
+    stderr: TextIO | None = None,
 ) -> Counter[str]:
     """Read pre-counted key/value pairs from stdin.
 
@@ -300,6 +307,8 @@ def read_pretallied_tokens(
     """
     if stream is None:
         stream = sys.stdin
+    if stderr is None:
+        stderr = sys.stderr
     token_dict: Counter[str] = Counter()
 
     if settings.graph_values == "vk":
@@ -316,12 +325,12 @@ def read_pretallied_tokens(
         if not match:
             print(
                 f" E Input malformed+discarded (perhaps pass -g={hint}?): {line}",
-                file=sys.stderr,
+                file=stderr,
             )
             continue
         value = int(match.group(value_group))
         token_dict[match.group(key_group)] += value
-        stats.total_values += value
+        stats.value_sum += value
         stats.total_objects += 1
 
     return token_dict
@@ -374,7 +383,7 @@ def read_numerics(
 
         total_value += graph_value
 
-        if not first_line:
+        if settings.numeric_mode != "mon" or not first_line:
             output_list.append(graph_value)
         first_line = False
         stats.total_objects += 1
@@ -393,7 +402,8 @@ def render_numeric_graph(
     if stdout is None:
         stdout = sys.stdout
     for value in data.values:
-        percent = f"({value / data.total_value * 100:2.2f}%)"
+        pct = value / data.total_value * 100 if data.total_value else 0
+        percent = f"({pct:2.2f}%)"
         bar = histogram_bar(
             settings.width - 11 - data.max_width,
             data.max_value,
@@ -547,6 +557,8 @@ def _parse_args() -> argparse.Namespace:
     ~/.distributionrc.  The rcfile is read as a set of defaults that
     CLI arguments override.
     """
+    # TODO: This parses sys.argv twice (once for --rcfile, once for real).  # noqa: FIX002
+    # Could use parse_known_args for just --rcfile first, then a single full parse.
     parser = _build_parser()
     first_pass = parser.parse_args()
     if first_pass.rcfile is not None:
