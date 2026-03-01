@@ -12,21 +12,23 @@ A command-line tool for generating character-based histograms and graphs in the 
 # Run directly
 echo "data" | ./distribution.py [options]
 
-# Run all tests (both Perl and Python)
+# Full check suite (ruff, pylint, ty, mypy --strict, pytest)
+just check
+
+# Run tests (args passed through to pytest)
+just test
+just test -k "test_foo"
+just test -v
+
+# Individual tools
+just lint     # ruff check+format, pylint
+just typing   # ty check, mypy --strict
+
+# Legacy shell-based e2e tests (both Perl and Python)
 ./runTests.sh
-
-# Format
-ruff format distribution.py
-
-# Lint
-ruff check distribution.py
-
-# Type check
-mypy distribution.py
-ty check distribution.py
 ```
 
-Tests are shell-based: each test feeds `stdin.*.txt` files and compares stdout/stderr against `*.expected.txt` files. There are 7 test cases.
+Tests live in `tests/`: 7 shell-based e2e cases (`stdin.*.txt` vs `*.expected.txt`) wrapped by `test_e2e.py`, plus unit tests in `test_unit.py`.
 
 ## Linting Configuration
 
@@ -35,16 +37,15 @@ Tests are shell-based: each test feeds `stdin.*.txt` files and compares stdout/s
 
 ## Architecture
 
-Everything lives in `distribution.py` (~630 lines), organized into three classes that form a pipeline:
+Everything lives in `distribution.py` (~740 lines), organized as free functions with a `Settings` dataclass threaded through:
 
-1. **Settings** — Parses `~/.distributionrc` config file and command-line arguments. Manages all display parameters (dimensions, colors, Unicode chars, tokenization regexes). Passed to other classes as shared state.
+1. **Settings** — Parses `~/.distributionrc` config file and command-line arguments. Manages all display parameters (dimensions, colors, Unicode chars, tokenization regexes). Passed to other functions as shared state.
 
-2. **InputReader** — Reads stdin in one of three modes:
-   - `tokenize_input()` — splits lines by regex, counts token frequency
+2. **Input functions** — Read stdin in one of three modes:
+   - `tokenize_input()` — splits lines by regex, counts token frequency (includes hash pruning to prevent OOM)
    - `read_pretallied_tokens()` — reads pre-counted key/value pairs (vk or kv format)
    - `read_numerics()` — graphs raw numbers or monotonic differences
-   - Includes hash pruning to prevent OOM on large datasets
 
-3. **Histogram** — Renders the visualization. Supports logarithmic scaling, Unicode partial-width characters (1/8 or 1/3 resolution), color palettes via ANSI codes. Headers go to stderr, data to stdout (enabling piping to `sort`).
+3. **Rendering functions** — `write_hist()` renders the histogram; `render_numeric_graph()` handles numeric mode. Support logarithmic scaling, Unicode partial-width characters (1/8 or 1/3 resolution), color palettes via ANSI codes. Headers go to stderr, data to stdout (enabling piping to `sort`).
 
-**Data flow:** `main()` → Settings init → InputReader processes stdin into `token_dict` (key→count) → Histogram sorts deterministically by (value, key) and renders bars.
+**Data flow:** `main()` → Settings init → input function processes stdin into `token_dict` (key→count) or `NumericData` → rendering function sorts deterministically by (value, key) and renders bars.

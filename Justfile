@@ -1,6 +1,6 @@
 export PYTHONWARNDEFAULTENCODING := ""
 
-check: lint typing tests
+check: lint typing test
 
 lint:
     uv run ruff check --fix
@@ -11,5 +11,5 @@ typing:
     uv run ty check
     uv run mypy --strict distribution.py
 
-tests:
-    uv run pytest
+test *args:
+    uv run pytest {{ args }}
