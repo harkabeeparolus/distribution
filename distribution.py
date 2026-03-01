@@ -70,24 +70,22 @@ def histogram_bar(
     """
     bar = ""
 
-    one_char = ""
     if settings.char_width < 1:
         zero_char = settings.graph_chars[-1]
+        one_char = ""
     elif len(settings.histogram_char) > 1:
-        zero_char = settings.histogram_char[0]
-        one_char = settings.histogram_char[1]
+        zero_char, one_char = settings.histogram_char[0], settings.histogram_char[1]
     else:
-        zero_char = settings.histogram_char
-        one_char = settings.histogram_char
+        zero_char = one_char = settings.histogram_char
 
     if settings.logarithmic:
         max_log = math.log(max_value)
         bar_log = math.log(bar_value) if bar_value > 0 else 0
-        integer_width = int(bar_log / max_log * histogram_width)
-        remainder_width = (bar_log / max_log * histogram_width) - integer_width
+        scaled = bar_log / max_log * histogram_width
     else:
-        integer_width = int(bar_value / max_value * histogram_width)
-        remainder_width = (bar_value / max_value * histogram_width) - integer_width
+        scaled = bar_value / max_value * histogram_width
+    integer_width = int(scaled)
+    remainder_width = scaled - integer_width
 
     bar += zero_char * integer_width
 
@@ -156,7 +154,6 @@ def write_hist(  # pylint: disable=too-many-locals
         stderr = sys.stderr
 
     output_dict: dict[str, int] = {}
-    max_value = 0
     for key in sorted(token_dict, key=lambda k: (token_dict[k], k), reverse=True):
         if not key:
             # re.split() produces empty strings at boundaries, and blank
@@ -164,13 +161,14 @@ def write_hist(  # pylint: disable=too-many-locals
             # too: an empty key would render a broken row with no label.
             continue
         output_dict[key] = token_dict[key]
-        max_value = max(max_value, output_dict[key])
         if len(output_dict) >= settings.height:
             break
 
     if not output_dict:
         reason = "All input filtered" if stats.total_objects > 0 else "No input"
         raise EmptyInputError(reason)
+
+    max_value = max(output_dict.values())
 
     # verbose timing stats
     stats.end_time = time.monotonic()
@@ -303,32 +301,29 @@ def read_pretallied_tokens(
     if stream is None:
         stream = sys.stdin
     token_dict: Counter[str] = Counter()
-    value_key_pattern = re.compile(r"^\s*(\d+)\s+(.+)$")
-    key_value_pattern = re.compile(r"^(.+?)\s+(\d+)$")
+
     if settings.graph_values == "vk":
-        for line in stream:
-            match = value_key_pattern.match(line)
-            if not match:
-                print(
-                    f" E Input malformed+discarded (perhaps pass -g=kv?): {line}",
-                    file=sys.stderr,
-                )
-                continue
-            token_dict[match.group(2)] += int(match.group(1))
-            stats.total_values += int(match.group(1))
-            stats.total_objects += 1
-    elif settings.graph_values == "kv":
-        for line in stream:
-            match = key_value_pattern.match(line)
-            if not match:
-                print(
-                    f" E Input malformed+discarded (perhaps pass -g=vk?): {line}",
-                    file=sys.stderr,
-                )
-                continue
-            token_dict[match.group(1)] += int(match.group(2))
-            stats.total_values += int(match.group(2))
-            stats.total_objects += 1
+        pattern = re.compile(r"^\s*(\d+)\s+(.+)$")
+        value_group, key_group = 1, 2
+        hint = "kv"
+    else:
+        pattern = re.compile(r"^(.+?)\s+(\d+)$")
+        value_group, key_group = 2, 1
+        hint = "vk"
+
+    for line in stream:
+        match = pattern.match(line)
+        if not match:
+            print(
+                f" E Input malformed+discarded (perhaps pass -g={hint}?): {line}",
+                file=sys.stderr,
+            )
+            continue
+        value = int(match.group(value_group))
+        token_dict[match.group(key_group)] += value
+        stats.total_values += value
+        stats.total_objects += 1
+
     return token_dict
 
 
@@ -660,10 +655,10 @@ def settings_from_args() -> Settings:
     width = 80
     height = 15
     size_presets: dict[str, tuple[int, int]] = {}
-    for names, dimensions in [
-        (("small", "sm", "s"), (60, 10)),
-        (("medium", "med", "m"), (100, 20)),
-        (("large", "lg", "l"), (140, 35)),
+    for dimensions, names in [
+        ((60, 10), ("small", "sm", "s")),
+        ((100, 20), ("medium", "med", "m")),
+        ((140, 35), ("large", "lg", "l")),
     ]:
         for name in names:
             size_presets[name] = dimensions
