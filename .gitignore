@@ -1,0 +1,19 @@
+# Environment
+.envrc
+.venv/
+
+# Caches
+__pycache__/
+*.py[cod]
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+
+# Distribution/packaging
+*.egg-info/
+dist/
+build/
+
+# IDE
+.vscode/
+.idea/

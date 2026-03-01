@@ -36,24 +36,18 @@ def awk_fields(text: str, *fields: int) -> str:
     return "\n".join(lines) + "\n"
 
 
-def grep_filter(text: str, pattern: str) -> str:
-    """Keep only lines containing the given substring."""
-    return "\n".join(line for line in text.splitlines() if pattern in line) + "\n"
-
-
-def normalize_ws(text: str) -> list[str]:
-    """Strip all whitespace per line, equivalent to diff -w."""
-    return ["".join(line.split()) for line in text.splitlines()]
-
-
 def read_fixture(name: str) -> str:
     """Read a test fixture file from the tests directory."""
     return (TESTS_DIR / name).read_text(encoding="utf-8")
 
 
 def assert_ws_equal(actual: str, expected: str) -> None:
-    """Assert two strings match after whitespace normalization."""
-    assert normalize_ws(actual) == normalize_ws(expected)
+    """Assert two strings match after whitespace normalization (like diff -w)."""
+
+    def normalize(s: str) -> list[str]:
+        return ["".join(line.split()) for line in s.splitlines()]
+
+    assert normalize(actual) == normalize(expected)
 
 
 def assert_stdout(
@@ -66,15 +60,10 @@ def assert_stdout(
 
 def _numeric_sort_key(line: str) -> tuple[float, str]:
     """Sort key mimicking sort -n: by leading number, then lexicographic."""
-    stripped = line.lstrip()
-    num_str = ""
-    for ch in stripped:
-        if ch in "0123456789.-+":
-            num_str += ch
-        else:
-            break
+    s = line.lstrip()
+    end = next((i for i, c in enumerate(s) if c not in "0123456789.-+"), len(s))
     try:
-        return (float(num_str), line) if num_str else (0.0, line)
+        return (float(s[:end]), line) if end else (0.0, line)
     except ValueError:
         return (0.0, line)
 
@@ -111,7 +100,8 @@ def test_02_awk_fields_tokenize_word() -> None:
 def test_03_grep_modem_sorted() -> None:
     """Grep modem, awk field 1, sorted output."""
     raw = read_fixture("stdin.02.txt")
-    input_text = awk_fields(grep_filter(raw, "modem"), 1)
+    filtered = "\n".join(line for line in raw.splitlines() if "modem" in line) + "\n"
+    input_text = awk_fields(filtered, 1)
     result = run_distribution(
         ["--width=110", "--height=15", "--char=|", "--verbose", "--color"],
         input_text,
