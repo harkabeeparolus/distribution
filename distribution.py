@@ -22,7 +22,7 @@ import time
 from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import NamedTuple, TextIO
+from typing import NamedTuple, NoReturn, TextIO
 
 logger = logging.getLogger(__name__)
 
@@ -466,22 +466,34 @@ def settings_from_args() -> Settings:
 
 
 def _parse_args() -> argparse.Namespace:
-    """Run two-pass parsing: CLI args first, then rcfile defaults underneath.
+    """Two-pass parse: discover --rcfile from CLI, then re-parse with rcfile defaults.
 
     If --rcfile is given, use that file; otherwise fall back to
     ~/.distributionrc.  The rcfile is read as a set of defaults that
     CLI arguments override.
     """
-    # TODO: This parses sys.argv twice (once for --rcfile, once for real).  # noqa: FIX002
-    # Could use parse_known_args for just --rcfile first, then a single full parse.
+    # Two passes are inherent: we must read CLI args to learn the rcfile path
+    # before we can load its defaults underneath.
     parser = _build_parser()
-    first_pass = parser.parse_args()
-    if first_pass.rcfile:
-        rcfile = Path(first_pass.rcfile).expanduser()
-    else:
-        rcfile = Path.home() / ".distributionrc"
-    defaults = [f"@{rcfile}"] if rcfile.is_file() else []
-    return parser.parse_args(namespace=parser.parse_args(defaults))
+
+    # Pass 1: discover which rcfile to load.
+    cli_args = parser.parse_args()
+    rcfile = (
+        Path(cli_args.rcfile).expanduser()
+        if cli_args.rcfile
+        else Path.home() / ".distributionrc"
+    )
+
+    if not rcfile.is_file():
+        if cli_args.rcfile:
+            parser.error(f"rcfile not found: {rcfile}")
+        return cli_args
+
+    # Pass 2: re-parse with rcfile values as the base layer; CLI args override.
+    parser.rcfile_path = str(rcfile)
+    rcfile_defaults = parser.parse_args([f"@{rcfile}"])
+    parser.rcfile_path = ""
+    return parser.parse_args(namespace=rcfile_defaults)
 
 
 DEFAULT_PALETTE = "0,0,32,35,34"
@@ -584,7 +596,7 @@ def _build_parser() -> DistributionParser:
     """Build the argument parser with all options defined."""
     parser = DistributionParser(
         fromfile_prefix_chars="@",
-        usage="<commandWithOutput> | %(prog)s [options]",
+        usage="<command_with_output> | %(prog)s [options]",
         description=__doc__,
         epilog=(
             "Samples:\n"
@@ -715,6 +727,14 @@ def _build_parser() -> DistributionParser:
 
 class DistributionParser(argparse.ArgumentParser):
     """Strip comments and blank lines from @-included config files."""
+
+    rcfile_path: str = ""
+
+    def error(self, message: str) -> NoReturn:
+        """Prepend rcfile path to the error message when set."""
+        if self.rcfile_path:
+            message = f"in {self.rcfile_path}: {message}"
+        super().error(message)
 
     def convert_arg_line_to_args(self, arg_line: str) -> list[str]:
         """Return non-empty, non-comment lines from config files."""
