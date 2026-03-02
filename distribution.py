@@ -33,7 +33,7 @@ def main() -> None:
         if settings.graph_values:
             token_dict = read_pretallied_tokens(settings, stats)
             write_hist(settings, stats, token_dict)
-        elif settings.numeric_mode is not None:
+        elif settings.numeric_mode:
             numeric_data = read_numerics(settings, stats)
             render_numeric_graph(settings, numeric_data)
         else:
@@ -57,16 +57,14 @@ def tokenize_input(
     can specify any regexp. Likewise, matching defaults to everything
     but can be restricted to all-alpha or all-numeric tokens.
     """
-    if stream is None:
-        stream = sys.stdin
-    if stderr is None:
-        stderr = sys.stderr
+    stream = stream or sys.stdin
+    stderr = stderr or sys.stderr
 
     token_dict: Counter[str] = Counter()
 
     # docs say these are cached, but i got about 2x speed boost
     # from doing the compile
-    should_tokenize = bool(settings.tokenize)
+    should_tokenize = settings.tokenize
     tokenize_pattern = re.compile(settings.tokenize)
     match_pattern = re.compile(settings.match_regexp)
 
@@ -124,10 +122,8 @@ def read_pretallied_tokens(
     Input is already tallied (as in `du -sb`). vk means the number
     is first and key second; kv means key first and number second.
     """
-    if stream is None:
-        stream = sys.stdin
-    if stderr is None:
-        stderr = sys.stderr
+    stream = stream or sys.stdin
+    stderr = stderr or sys.stderr
     token_dict: Counter[str] = Counter()
 
     if settings.graph_values == "vk":
@@ -165,8 +161,7 @@ def read_numerics(
     or per-key percentages.  All values are graphed — --height and
     --size are intentionally ignored so nothing is thrown away.
     """
-    if stream is None:
-        stream = sys.stdin
+    stream = stream or sys.stdin
     last_value = 0.0
     output_list: list[float] = []
     first_line = True
@@ -212,10 +207,8 @@ def write_hist(  # pylint: disable=too-many-locals
     by key name.  Headers go to stderr; data lines carry no colour prefix
     so output can be piped to sort.
     """
-    if stdout is None:
-        stdout = sys.stdout
-    if stderr is None:
-        stderr = sys.stderr
+    stdout = stdout or sys.stdout
+    stderr = stderr or sys.stderr
 
     output_dict: dict[str, int] = {}
     for key in sorted(token_dict, key=lambda k: (token_dict[k], k), reverse=True):
@@ -367,8 +360,7 @@ def render_numeric_graph(
     This is deliberately simpler than write_hist: no key labels, no
     height limit, no sorting.  Every input value gets a bar.
     """
-    if stdout is None:
-        stdout = sys.stdout
+    stdout = stdout or sys.stdout
     for value in data.values:
         pct = value / data.total_value * 100 if data.total_value else 0
         percent = f"({pct:2.2f}%)"
@@ -425,16 +417,17 @@ def settings_from_args() -> Settings:
 
     width = 80
     height = 15
-    size_presets: dict[str, tuple[int, int]] = {}
-    for dimensions, names in [
-        ((60, 10), ("small", "sm", "s")),
-        ((100, 20), ("medium", "med", "m")),
-        ((140, 35), ("large", "lg", "l")),
-    ]:
-        for name in names:
-            size_presets[name] = dimensions
+    size_presets: dict[str, tuple[int, int]] = {
+        name: dimensions
+        for dimensions, names in [
+            ((60, 10), ("small", "sm", "s")),
+            ((100, 20), ("medium", "med", "m")),
+            ((140, 35), ("large", "lg", "l")),
+        ]
+        for name in names
+    }
 
-    if args.size in ("full", "fl", "f"):
+    if args.size in {"full", "fl", "f"}:
         width, height = shutil.get_terminal_size()
         height -= 3
         if args.verbose:
@@ -445,9 +438,9 @@ def settings_from_args() -> Settings:
         width, height = size_presets[args.size]
 
     # explicit --width/--height override everything
-    if args.width != 0:
+    if args.width:
         width = args.width
-    if args.height != 0:
+    if args.height:
         height = args.height
 
     colourised_output = args.color or args.palette != DEFAULT_PALETTE
@@ -488,7 +481,7 @@ def _parse_args() -> argparse.Namespace:
     # Could use parse_known_args for just --rcfile first, then a single full parse.
     parser = _build_parser()
     first_pass = parser.parse_args()
-    if first_pass.rcfile is not None:
+    if first_pass.rcfile:
         rcfile = Path(first_pass.rcfile).expanduser()
     else:
         rcfile = Path.home() / ".distributionrc"
@@ -523,7 +516,7 @@ class Settings:
     tokenize: str = ""
     match_regexp: str = "."
     graph_values: str = ""
-    numeric_mode: str | None = None
+    numeric_mode: str = ""
     max_keys: int = DEFAULT_MAX_KEYS
     stat_interval: float = 1.0
     key_prune_interval: int = 1500000
@@ -538,20 +531,18 @@ class Settings:
     def _resolve_aliases(self) -> None:
         """Expand tokenize/match/numeric_mode aliases into actual values."""
         tokenize_aliases = {"white": r"\s+", "word": r"\W"}
-        if self.tokenize in tokenize_aliases:
-            self.tokenize = tokenize_aliases[self.tokenize]
+        self.tokenize = tokenize_aliases.get(self.tokenize, self.tokenize)
         match_aliases = {"word": r"^[A-Z,a-z]+$", "num": r"^\d+$", "number": r"^\d+$"}
-        if self.match_regexp in match_aliases:
-            self.match_regexp = match_aliases[self.match_regexp]
+        self.match_regexp = match_aliases.get(self.match_regexp, self.match_regexp)
 
         # synonyms "monotonically-increasing": derivative, difference, delta, increasing
         # so all "d" "i" and "m" words will be graphing those differences
         # synonyms "actual values": absolute, actual, number, normal, noop,
         # so all "a" and "n" words will graph straight up numbers
-        if self.numeric_mode is not None:
-            if self.numeric_mode[0] in ("d", "i", "m"):
+        if self.numeric_mode:
+            if self.numeric_mode[0] in {"d", "i", "m"}:
                 self.numeric_mode = "mon"
-            elif self.numeric_mode[0] in ("a", "n"):
+            elif self.numeric_mode[0] in {"a", "n"}:
                 self.numeric_mode = "abs"
 
     def _resolve_colours(self) -> None:
@@ -581,8 +572,9 @@ class Settings:
             "dt": "•",
             "sq": "□",
         }
-        if self.histogram_char in char_substitutions:
-            self.histogram_char = char_substitutions[self.histogram_char]
+        self.histogram_char = char_substitutions.get(
+            self.histogram_char, self.histogram_char
+        )
 
         # sub-full character width graphing systems
         if self.histogram_char == "pb":
@@ -639,7 +631,7 @@ def _build_parser() -> DistributionParser:
         "--numonly",
         nargs="?",
         const="abs",
-        default=None,
+        default="",
         metavar="N",
         help="input is numerics, simply graph values without labels\n"
         "  actual   input is just values (default)\n"
