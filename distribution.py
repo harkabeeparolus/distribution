@@ -29,12 +29,13 @@ logger = logging.getLogger(__name__)
 
 def main() -> None:
     """Parse arguments, read stdin, and render the histogram."""
-    settings = settings_from_args()
+    args = _parse_args()
     logging.basicConfig(
-        level=logging.DEBUG if settings.verbose else logging.WARNING,
+        level=logging.DEBUG if args.verbose else logging.WARNING,
         format="%(message)s",
         stream=sys.stderr,
     )
+    settings = settings_from_args(args)
     stats = Stats()
 
     try:
@@ -406,10 +407,8 @@ class EmptyInputError(Exception):
     """Raised when there is no data to display."""
 
 
-def settings_from_args() -> Settings:
+def settings_from_args(args: argparse.Namespace) -> Settings:
     """Create Settings from command-line arguments and config file."""
-    args = _parse_args()
-
     width = 80
     height = 15
     size_presets: dict[str, tuple[int, int]] = {
@@ -456,9 +455,6 @@ def settings_from_args() -> Settings:
     )
 
     # max_keys was silently floored by __post_init__; report if verbose
-    # TODO: This fires before logging.basicConfig() in main(), so the  # noqa: FIX002
-    # message is silently dropped.  Move to main() or configure logging
-    # earlier if this diagnostic is ever needed.
     if args.keys < settings.max_keys:
         logger.debug(f"Updated max_keys to {settings.max_keys} (height + 3000)")
 
