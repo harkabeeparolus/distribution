@@ -23,117 +23,178 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import NamedTuple, TextIO
 
-DEFAULT_PALETTE = "0,0,32,35,34"
-DEFAULT_MAX_KEYS = 5000
-PARTIAL_BLOCKS = ("▏", "▎", "▍", "▌", "▋", "▊", "▉", "█")  # char=pb
-PARTIAL_LINES = ("╸", "╾", "━")  # char=pl
 
+def main() -> None:
+    """Parse arguments, read stdin, and render the histogram."""
+    settings = settings_from_args()
+    stats = Stats()
 
-@dataclass
-class Stats:
-    """Runtime counters accumulated during input processing."""
-
-    total_objects: int = 0
-    value_sum: int = 0
-    prune_count: int = 0
-    start_time: float = field(default_factory=time.monotonic)
-    end_time: float = 0.0
-
-
-class EmptyInputError(Exception):
-    """Raised when there is no data to display."""
-
-
-class DistributionParser(argparse.ArgumentParser):
-    """Strip comments and blank lines from @-included config files."""
-
-    def convert_arg_line_to_args(self, arg_line: str) -> list[str]:
-        """Return non-empty, non-comment lines from config files."""
-        stripped = arg_line.strip()
-        if stripped and not stripped.startswith("#"):
-            return [stripped]
-        return []
-
-
-def histogram_bar(
-    histogram_width: int,
-    max_value: float,
-    bar_value: float,
-    settings: Settings,
-) -> str:
-    """Return a histogram bar string scaled to the given value.
-
-    The bar has two parts: a run of full-width characters sized to the
-    integer portion of the scaled width, then a single trailing character
-    — either full-width or a partial-width Unicode glyph chosen to
-    represent the fractional remainder.
-    """
-    bar = ""
-
-    if settings.char_width < 1:
-        zero_char = settings.graph_chars[-1]
-        one_char = ""
-    elif len(settings.histogram_char) > 1:
-        zero_char, one_char = settings.histogram_char[0], settings.histogram_char[1]
-    else:
-        zero_char = one_char = settings.histogram_char
-
-    if max_value == 0:
-        return one_char or zero_char
-
-    if settings.logarithmic:
-        max_log = math.log(max_value)
-        bar_log = math.log(bar_value) if bar_value > 0 else 0
-        scaled = bar_log / max_log * histogram_width
-    else:
-        scaled = bar_value / max_value * histogram_width
-    integer_width = int(scaled)
-    remainder_width = scaled - integer_width
-
-    bar += zero_char * integer_width
-
-    # FIXME: The remainder partial char printed does not take into  # noqa: FIX001
-    # account logarithmic scale (can humans notice?).
-    if settings.char_width == 1:
-        bar += one_char
-    elif settings.char_width < 1:
-        if remainder_width > settings.char_width:
-            # high-resolution: figure out what partial-width char to use
-            which_char = int(remainder_width / settings.char_width)
-            bar += settings.graph_chars[which_char]
+    try:
+        if settings.graph_values:
+            token_dict = read_pretallied_tokens(settings, stats)
+            write_hist(settings, stats, token_dict)
+        elif settings.numeric_mode is not None:
+            numeric_data = read_numerics(settings, stats)
+            render_numeric_graph(settings, numeric_data)
         else:
-            # minimum-width character so we always see something
-            bar += settings.graph_chars[0]
-
-    return bar
-
-
-class HistLayout(NamedTuple):
-    """Pre-computed column widths for histogram rendering."""
-
-    max_token_length: int
-    max_value_width: int
-    max_percent_width: int
-    histogram_width: int
+            token_dict = tokenize_input(settings, stats)
+            write_hist(settings, stats, token_dict)
+    except EmptyInputError as exc:
+        print(f"{exc}! No histogram for you.", file=sys.stderr)
+        sys.exit(255)
 
 
-def _hist_layout(
-    output_dict: dict[str, int], value_sum: int, display_width: int
-) -> HistLayout:
-    """Compute column widths from the filtered output dict."""
-    max_token_length = max(len(k) for k in output_dict)
-    first_value = next(iter(output_dict.values()))
-    max_value_width = len(str(first_value))
-    max_percent_width = len(f"({first_value / value_sum * 100:2.2f}%)")
-    histogram_width = (
-        display_width
-        - (max_token_length + 1)
-        - (max_value_width + 1)
-        - (max_percent_width + 1)
-        - 1
-    )
-    return HistLayout(
-        max_token_length, max_value_width, max_percent_width, histogram_width
+def tokenize_input(
+    settings: Settings,
+    stats: Stats,
+    *,
+    stream: TextIO | None = None,
+    stderr: TextIO | None = None,
+) -> Counter[str]:
+    """Split stdin lines into tokens and count their frequency.
+
+    Splits on whitespace or word boundaries by default, but the user
+    can specify any regexp. Likewise, matching defaults to everything
+    but can be restricted to all-alpha or all-numeric tokens.
+    """
+    if stream is None:
+        stream = sys.stdin
+    if stderr is None:
+        stderr = sys.stderr
+
+    token_dict: Counter[str] = Counter()
+
+    # docs say these are cached, but i got about 2x speed boost
+    # from doing the compile
+    should_tokenize = bool(settings.tokenize)
+    tokenize_pattern = re.compile(settings.tokenize)
+    match_pattern = re.compile(settings.match_regexp)
+
+    next_stat = time.time() + settings.stat_interval
+
+    prune_objects = 0
+    for raw_line in stream:
+        tokens = (
+            tokenize_pattern.split(raw_line.rstrip("\n"))
+            if should_tokenize
+            else [raw_line.rstrip("\n")]
+        )
+        for token in tokens:
+            if not token:
+                continue
+            stats.total_objects += 1
+            if match_pattern.match(token):
+                stats.value_sum += 1
+                prune_objects += 1
+                token_dict[token] += 1
+
+        # prune the hash if it gets too large
+        if prune_objects >= settings.key_prune_interval:
+            token_dict = _prune_keys(token_dict, settings, stats)
+            prune_objects = 0
+
+        if settings.verbose and time.time() > next_stat:
+            print(
+                f"tokens/lines examined: {stats.total_objects:,d} ; hash prunes: {stats.prune_count:,d}...",
+                end="\r",
+                file=stderr,
+            )
+            next_stat = time.time() + settings.stat_interval
+
+    return token_dict
+
+
+def _prune_keys(
+    token_dict: Counter[str], settings: Settings, stats: Stats
+) -> Counter[str]:
+    """Keep only the top max_keys entries in the token dict."""
+    stats.prune_count += 1
+    return Counter(dict(token_dict.most_common(settings.max_keys)))
+
+
+def read_pretallied_tokens(
+    settings: Settings,
+    stats: Stats,
+    *,
+    stream: TextIO | None = None,
+    stderr: TextIO | None = None,
+) -> Counter[str]:
+    """Read pre-counted key/value pairs from stdin.
+
+    Input is already tallied (as in `du -sb`). vk means the number
+    is first and key second; kv means key first and number second.
+    """
+    if stream is None:
+        stream = sys.stdin
+    if stderr is None:
+        stderr = sys.stderr
+    token_dict: Counter[str] = Counter()
+
+    if settings.graph_values == "vk":
+        pattern = re.compile(r"^\s*(\d+)\s+(.+)$")
+        value_group, key_group = 1, 2
+        hint = "kv"
+    else:
+        pattern = re.compile(r"^(.+?)\s+(\d+)$")
+        value_group, key_group = 2, 1
+        hint = "vk"
+
+    for line in stream:
+        match = pattern.match(line)
+        if not match:
+            print(
+                f" E Input malformed+discarded (perhaps pass -g={hint}?): {line}",
+                file=stderr,
+            )
+            continue
+        value = int(match.group(value_group))
+        token_dict[match.group(key_group)] += value
+        stats.total_objects += 1
+
+    stats.value_sum = sum(token_dict.values())
+    return token_dict
+
+
+def read_numerics(
+    settings: Settings, stats: Stats, *, stream: TextIO | None = None
+) -> NumericData:
+    """Read raw numbers from stdin and return graph data.
+
+    Unlike the main histogram pipeline, numeric mode is a simpler
+    visualisation: it graphs every value without aggregation, totals,
+    or per-key percentages.  All values are graphed — --height and
+    --size are intentionally ignored so nothing is thrown away.
+    """
+    if stream is None:
+        stream = sys.stdin
+    last_value = 0.0
+    output_list: list[float] = []
+    first_line = True
+    for raw_line in stream:
+        try:
+            numeric = float(raw_line.rstrip())
+        except ValueError:
+            numeric = last_value
+
+        graph_value = 0.0
+        if settings.numeric_mode == "mon":
+            if not first_line:
+                graph_value = numeric - last_value
+            last_value = numeric
+        else:
+            graph_value = numeric
+
+        if settings.numeric_mode != "mon" or not first_line:
+            output_list.append(graph_value)
+        first_line = False
+        stats.total_objects += 1
+
+    max_value = max(output_list, default=0.0)
+    return NumericData(
+        output_list,
+        max_value,
+        sum(output_list),
+        len(str(max_value)) if output_list else 0,
     )
 
 
@@ -225,167 +286,77 @@ def write_hist(  # pylint: disable=too-many-locals
         )
 
 
-def _prune_keys(
-    token_dict: Counter[str], settings: Settings, stats: Stats
-) -> Counter[str]:
-    """Keep only the top max_keys entries in the token dict."""
-    stats.prune_count += 1
-    return Counter(dict(token_dict.most_common(settings.max_keys)))
-
-
-def tokenize_input(
-    settings: Settings,
-    stats: Stats,
-    *,
-    stream: TextIO | None = None,
-    stderr: TextIO | None = None,
-) -> Counter[str]:
-    """Split stdin lines into tokens and count their frequency.
-
-    Splits on whitespace or word boundaries by default, but the user
-    can specify any regexp. Likewise, matching defaults to everything
-    but can be restricted to all-alpha or all-numeric tokens.
-    """
-    if stream is None:
-        stream = sys.stdin
-    if stderr is None:
-        stderr = sys.stderr
-
-    token_dict: Counter[str] = Counter()
-
-    # docs say these are cached, but i got about 2x speed boost
-    # from doing the compile
-    should_tokenize = bool(settings.tokenize)
-    tokenize_pattern = re.compile(settings.tokenize)
-    match_pattern = re.compile(settings.match_regexp)
-
-    next_stat = time.time() + settings.stat_interval
-
-    prune_objects = 0
-    for raw_line in stream:
-        tokens = (
-            tokenize_pattern.split(raw_line.rstrip("\n"))
-            if should_tokenize
-            else [raw_line.rstrip("\n")]
-        )
-        for token in tokens:
-            if not token:
-                continue
-            stats.total_objects += 1
-            if match_pattern.match(token):
-                stats.value_sum += 1
-                prune_objects += 1
-                token_dict[token] += 1
-
-        # prune the hash if it gets too large
-        if prune_objects >= settings.key_prune_interval:
-            token_dict = _prune_keys(token_dict, settings, stats)
-            prune_objects = 0
-
-        if settings.verbose and time.time() > next_stat:
-            print(
-                f"tokens/lines examined: {stats.total_objects:,d} ; hash prunes: {stats.prune_count:,d}...",
-                end="\r",
-                file=stderr,
-            )
-            next_stat = time.time() + settings.stat_interval
-
-    return token_dict
-
-
-def read_pretallied_tokens(
-    settings: Settings,
-    stats: Stats,
-    *,
-    stream: TextIO | None = None,
-    stderr: TextIO | None = None,
-) -> Counter[str]:
-    """Read pre-counted key/value pairs from stdin.
-
-    Input is already tallied (as in `du -sb`). vk means the number
-    is first and key second; kv means key first and number second.
-    """
-    if stream is None:
-        stream = sys.stdin
-    if stderr is None:
-        stderr = sys.stderr
-    token_dict: Counter[str] = Counter()
-
-    if settings.graph_values == "vk":
-        pattern = re.compile(r"^\s*(\d+)\s+(.+)$")
-        value_group, key_group = 1, 2
-        hint = "kv"
-    else:
-        pattern = re.compile(r"^(.+?)\s+(\d+)$")
-        value_group, key_group = 2, 1
-        hint = "vk"
-
-    for line in stream:
-        match = pattern.match(line)
-        if not match:
-            print(
-                f" E Input malformed+discarded (perhaps pass -g={hint}?): {line}",
-                file=stderr,
-            )
-            continue
-        value = int(match.group(value_group))
-        token_dict[match.group(key_group)] += value
-        stats.total_objects += 1
-
-    stats.value_sum = sum(token_dict.values())
-    return token_dict
-
-
-class NumericData(NamedTuple):
-    """Data returned by read_numerics for rendering a numeric graph."""
-
-    values: list[float]
-    max_value: float
-    total_value: float
-    max_width: int
-
-
-def read_numerics(
-    settings: Settings, stats: Stats, *, stream: TextIO | None = None
-) -> NumericData:
-    """Read raw numbers from stdin and return graph data.
-
-    Unlike the main histogram pipeline, numeric mode is a simpler
-    visualisation: it graphs every value without aggregation, totals,
-    or per-key percentages.  All values are graphed — --height and
-    --size are intentionally ignored so nothing is thrown away.
-    """
-    if stream is None:
-        stream = sys.stdin
-    last_value = 0.0
-    output_list: list[float] = []
-    first_line = True
-    for raw_line in stream:
-        try:
-            numeric = float(raw_line.rstrip())
-        except ValueError:
-            numeric = last_value
-
-        graph_value = 0.0
-        if settings.numeric_mode == "mon":
-            if not first_line:
-                graph_value = numeric - last_value
-            last_value = numeric
-        else:
-            graph_value = numeric
-
-        if settings.numeric_mode != "mon" or not first_line:
-            output_list.append(graph_value)
-        first_line = False
-        stats.total_objects += 1
-
-    max_value = max(output_list, default=0.0)
-    return NumericData(
-        output_list,
-        max_value,
-        sum(output_list),
-        len(str(max_value)) if output_list else 0,
+def _hist_layout(
+    output_dict: dict[str, int], value_sum: int, display_width: int
+) -> HistLayout:
+    """Compute column widths from the filtered output dict."""
+    max_token_length = max(len(k) for k in output_dict)
+    first_value = next(iter(output_dict.values()))
+    max_value_width = len(str(first_value))
+    max_percent_width = len(f"({first_value / value_sum * 100:2.2f}%)")
+    histogram_width = (
+        display_width
+        - (max_token_length + 1)
+        - (max_value_width + 1)
+        - (max_percent_width + 1)
+        - 1
     )
+    return HistLayout(
+        max_token_length, max_value_width, max_percent_width, histogram_width
+    )
+
+
+def histogram_bar(
+    histogram_width: int,
+    max_value: float,
+    bar_value: float,
+    settings: Settings,
+) -> str:
+    """Return a histogram bar string scaled to the given value.
+
+    The bar has two parts: a run of full-width characters sized to the
+    integer portion of the scaled width, then a single trailing character
+    — either full-width or a partial-width Unicode glyph chosen to
+    represent the fractional remainder.
+    """
+    bar = ""
+
+    if settings.char_width < 1:
+        zero_char = settings.graph_chars[-1]
+        one_char = ""
+    elif len(settings.histogram_char) > 1:
+        zero_char, one_char = settings.histogram_char[0], settings.histogram_char[1]
+    else:
+        zero_char = one_char = settings.histogram_char
+
+    if max_value == 0:
+        return one_char or zero_char
+
+    if settings.logarithmic:
+        max_log = math.log(max_value)
+        bar_log = math.log(bar_value) if bar_value > 0 else 0
+        scaled = bar_log / max_log * histogram_width
+    else:
+        scaled = bar_value / max_value * histogram_width
+    integer_width = int(scaled)
+    remainder_width = scaled - integer_width
+
+    bar += zero_char * integer_width
+
+    # FIXME: The remainder partial char printed does not take into  # noqa: FIX001
+    # account logarithmic scale (can humans notice?).
+    if settings.char_width == 1:
+        bar += one_char
+    elif settings.char_width < 1:
+        if remainder_width > settings.char_width:
+            # high-resolution: figure out what partial-width char to use
+            which_char = int(remainder_width / settings.char_width)
+            bar += settings.graph_chars[which_char]
+        else:
+            # minimum-width character so we always see something
+            bar += settings.graph_chars[0]
+
+    return bar
 
 
 def render_numeric_graph(
@@ -413,6 +384,213 @@ def render_numeric_graph(
             f"{settings.graph_colour}{bar}{settings.regular_colour}",
             file=stdout,
         )
+
+
+@dataclass
+class Stats:
+    """Runtime counters accumulated during input processing."""
+
+    total_objects: int = 0
+    value_sum: int = 0
+    prune_count: int = 0
+    start_time: float = field(default_factory=time.monotonic)
+    end_time: float = 0.0
+
+
+class NumericData(NamedTuple):
+    """Data returned by read_numerics for rendering a numeric graph."""
+
+    values: list[float]
+    max_value: float
+    total_value: float
+    max_width: int
+
+
+class HistLayout(NamedTuple):
+    """Pre-computed column widths for histogram rendering."""
+
+    max_token_length: int
+    max_value_width: int
+    max_percent_width: int
+    histogram_width: int
+
+
+class EmptyInputError(Exception):
+    """Raised when there is no data to display."""
+
+
+def settings_from_args() -> Settings:
+    """Create Settings from command-line arguments and config file."""
+    args = _parse_args()
+
+    width = 80
+    height = 15
+    size_presets: dict[str, tuple[int, int]] = {}
+    for dimensions, names in [
+        ((60, 10), ("small", "sm", "s")),
+        ((100, 20), ("medium", "med", "m")),
+        ((140, 35), ("large", "lg", "l")),
+    ]:
+        for name in names:
+            size_presets[name] = dimensions
+
+    if args.size in ("full", "fl", "f"):
+        width, height = shutil.get_terminal_size()
+        height -= 3
+        if args.verbose:
+            height -= 4  # need room for the verbosity output
+        width = max(width, 40)
+        height = max(height, 10)
+    elif args.size in size_presets:
+        width, height = size_presets[args.size]
+
+    # explicit --width/--height override everything
+    if args.width != 0:
+        width = args.width
+    if args.height != 0:
+        height = args.height
+
+    colourised_output = args.color or args.palette != DEFAULT_PALETTE
+
+    settings = Settings(
+        width=width,
+        height=height,
+        histogram_char=args.char,
+        logarithmic=args.logarithmic,
+        verbose=args.verbose,
+        colourised_output=colourised_output,
+        colour_palette=args.palette,
+        tokenize=args.tokenize,
+        match_regexp=args.match,
+        graph_values=args.graph,
+        numeric_mode=args.numonly,
+        max_keys=args.keys,
+    )
+
+    # max_keys was silently floored by __post_init__; report if verbose
+    if args.keys < settings.max_keys and settings.verbose:
+        print(
+            f"Updated max_keys to {settings.max_keys} (height + 3000)",
+            file=sys.stderr,
+        )
+
+    return settings
+
+
+def _parse_args() -> argparse.Namespace:
+    """Run two-pass parsing: CLI args first, then rcfile defaults underneath.
+
+    If --rcfile is given, use that file; otherwise fall back to
+    ~/.distributionrc.  The rcfile is read as a set of defaults that
+    CLI arguments override.
+    """
+    # TODO: This parses sys.argv twice (once for --rcfile, once for real).  # noqa: FIX002
+    # Could use parse_known_args for just --rcfile first, then a single full parse.
+    parser = _build_parser()
+    first_pass = parser.parse_args()
+    if first_pass.rcfile is not None:
+        rcfile = Path(first_pass.rcfile).expanduser()
+    else:
+        rcfile = Path.home() / ".distributionrc"
+    defaults = [f"@{rcfile}"] if rcfile.is_file() else []
+    return parser.parse_args(namespace=parser.parse_args(defaults))
+
+
+DEFAULT_PALETTE = "0,0,32,35,34"
+DEFAULT_MAX_KEYS = 5000
+PARTIAL_BLOCKS = ("▏", "▎", "▍", "▌", "▋", "▊", "▉", "█")  # char=pb
+PARTIAL_LINES = ("╸", "╾", "━")  # char=pl
+
+
+@dataclass
+class Settings:
+    """Display parameters for histogram rendering."""
+
+    width: int = 80
+    height: int = 15
+    histogram_char: str = "-"
+    char_width: float = 1.0
+    graph_chars: list[str] = field(default_factory=list)
+    logarithmic: bool = False
+    verbose: bool = False
+    colourised_output: bool = False
+    colour_palette: str = DEFAULT_PALETTE
+    regular_colour: str = ""
+    key_colour: str = ""
+    count_colour: str = ""
+    percent_colour: str = ""
+    graph_colour: str = ""
+    tokenize: str = ""
+    match_regexp: str = "."
+    graph_values: str = ""
+    numeric_mode: str | None = None
+    max_keys: int = DEFAULT_MAX_KEYS
+    stat_interval: float = 1.0
+    key_prune_interval: int = 1500000
+
+    def __post_init__(self) -> None:
+        """Resolve aliases, histogram char, colours, and max_keys floor."""
+        self._resolve_aliases()
+        self._resolve_histogram_char()
+        self._resolve_colours()
+        self.max_keys = max(self.max_keys, self.height + 3000)
+
+    def _resolve_aliases(self) -> None:
+        """Expand tokenize/match/numeric_mode aliases into actual values."""
+        tokenize_aliases = {"white": r"\s+", "word": r"\W"}
+        if self.tokenize in tokenize_aliases:
+            self.tokenize = tokenize_aliases[self.tokenize]
+        match_aliases = {"word": r"^[A-Z,a-z]+$", "num": r"^\d+$", "number": r"^\d+$"}
+        if self.match_regexp in match_aliases:
+            self.match_regexp = match_aliases[self.match_regexp]
+
+        # synonyms "monotonically-increasing": derivative, difference, delta, increasing
+        # so all "d" "i" and "m" words will be graphing those differences
+        # synonyms "actual values": absolute, actual, number, normal, noop,
+        # so all "a" and "n" words will graph straight up numbers
+        if self.numeric_mode is not None:
+            if self.numeric_mode[0] in ("d", "i", "m"):
+                self.numeric_mode = "mon"
+            elif self.numeric_mode[0] in ("a", "n"):
+                self.numeric_mode = "abs"
+
+    def _resolve_colours(self) -> None:
+        """Expand the colour palette string into ANSI escape codes."""
+        if self.colourised_output:
+            colours = self.colour_palette.split(",")
+            # ANSI color code is ESC+[+NN+m where ESC=chr(27), [ and m are
+            # the literal characters, and NN is a two-digit number, typically
+            # from 31 to 37 - why is this knowledge still useful in 2014?
+            colours = [f"\033[{code}m" for code in colours]
+            (
+                self.regular_colour,
+                self.key_colour,
+                self.count_colour,
+                self.percent_colour,
+                self.graph_colour,
+            ) = colours
+
+    def _resolve_histogram_char(self) -> None:
+        """Apply character substitutions and set up partial-width graphing."""
+        char_substitutions = {
+            "ba": "▬",
+            "bl": "Ξ",
+            "em": "—",
+            "me": "⋯",
+            "di": "♦",
+            "dt": "•",
+            "sq": "□",
+        }
+        if self.histogram_char in char_substitutions:
+            self.histogram_char = char_substitutions[self.histogram_char]
+
+        # sub-full character width graphing systems
+        if self.histogram_char == "pb":
+            self.char_width = 0.125
+            self.graph_chars = list(PARTIAL_BLOCKS)
+        elif self.histogram_char == "pl":
+            self.char_width = 0.3334
+            self.graph_chars = list(PARTIAL_LINES)
 
 
 def _build_parser() -> DistributionParser:
@@ -547,192 +725,15 @@ def _build_parser() -> DistributionParser:
     return parser
 
 
-def _parse_args() -> argparse.Namespace:
-    """Run two-pass parsing: CLI args first, then rcfile defaults underneath.
+class DistributionParser(argparse.ArgumentParser):
+    """Strip comments and blank lines from @-included config files."""
 
-    If --rcfile is given, use that file; otherwise fall back to
-    ~/.distributionrc.  The rcfile is read as a set of defaults that
-    CLI arguments override.
-    """
-    # TODO: This parses sys.argv twice (once for --rcfile, once for real).  # noqa: FIX002
-    # Could use parse_known_args for just --rcfile first, then a single full parse.
-    parser = _build_parser()
-    first_pass = parser.parse_args()
-    if first_pass.rcfile is not None:
-        rcfile = Path(first_pass.rcfile).expanduser()
-    else:
-        rcfile = Path.home() / ".distributionrc"
-    defaults = [f"@{rcfile}"] if rcfile.is_file() else []
-    return parser.parse_args(namespace=parser.parse_args(defaults))
-
-
-@dataclass
-class Settings:
-    """Display parameters for histogram rendering."""
-
-    width: int = 80
-    height: int = 15
-    histogram_char: str = "-"
-    char_width: float = 1.0
-    graph_chars: list[str] = field(default_factory=list)
-    logarithmic: bool = False
-    verbose: bool = False
-    colourised_output: bool = False
-    colour_palette: str = DEFAULT_PALETTE
-    regular_colour: str = ""
-    key_colour: str = ""
-    count_colour: str = ""
-    percent_colour: str = ""
-    graph_colour: str = ""
-    tokenize: str = ""
-    match_regexp: str = "."
-    graph_values: str = ""
-    numeric_mode: str | None = None
-    max_keys: int = DEFAULT_MAX_KEYS
-    stat_interval: float = 1.0
-    key_prune_interval: int = 1500000
-
-    def __post_init__(self) -> None:
-        """Resolve aliases, histogram char, colours, and max_keys floor."""
-        self._resolve_aliases()
-        self._resolve_histogram_char()
-        self._resolve_colours()
-        self.max_keys = max(self.max_keys, self.height + 3000)
-
-    def _resolve_aliases(self) -> None:
-        """Expand tokenize/match/numeric_mode aliases into actual values."""
-        tokenize_aliases = {"white": r"\s+", "word": r"\W"}
-        if self.tokenize in tokenize_aliases:
-            self.tokenize = tokenize_aliases[self.tokenize]
-        match_aliases = {"word": r"^[A-Z,a-z]+$", "num": r"^\d+$", "number": r"^\d+$"}
-        if self.match_regexp in match_aliases:
-            self.match_regexp = match_aliases[self.match_regexp]
-
-        # synonyms "monotonically-increasing": derivative, difference, delta, increasing
-        # so all "d" "i" and "m" words will be graphing those differences
-        # synonyms "actual values": absolute, actual, number, normal, noop,
-        # so all "a" and "n" words will graph straight up numbers
-        if self.numeric_mode is not None:
-            if self.numeric_mode[0] in ("d", "i", "m"):
-                self.numeric_mode = "mon"
-            elif self.numeric_mode[0] in ("a", "n"):
-                self.numeric_mode = "abs"
-
-    def _resolve_colours(self) -> None:
-        """Expand the colour palette string into ANSI escape codes."""
-        if self.colourised_output:
-            colours = self.colour_palette.split(",")
-            # ANSI color code is ESC+[+NN+m where ESC=chr(27), [ and m are
-            # the literal characters, and NN is a two-digit number, typically
-            # from 31 to 37 - why is this knowledge still useful in 2014?
-            colours = [f"\033[{code}m" for code in colours]
-            (
-                self.regular_colour,
-                self.key_colour,
-                self.count_colour,
-                self.percent_colour,
-                self.graph_colour,
-            ) = colours
-
-    def _resolve_histogram_char(self) -> None:
-        """Apply character substitutions and set up partial-width graphing."""
-        char_substitutions = {
-            "ba": "▬",
-            "bl": "Ξ",
-            "em": "—",
-            "me": "⋯",
-            "di": "♦",
-            "dt": "•",
-            "sq": "□",
-        }
-        if self.histogram_char in char_substitutions:
-            self.histogram_char = char_substitutions[self.histogram_char]
-
-        # sub-full character width graphing systems
-        if self.histogram_char == "pb":
-            self.char_width = 0.125
-            self.graph_chars = list(PARTIAL_BLOCKS)
-        elif self.histogram_char == "pl":
-            self.char_width = 0.3334
-            self.graph_chars = list(PARTIAL_LINES)
-
-
-def settings_from_args() -> Settings:
-    """Create Settings from command-line arguments and config file."""
-    args = _parse_args()
-
-    width = 80
-    height = 15
-    size_presets: dict[str, tuple[int, int]] = {}
-    for dimensions, names in [
-        ((60, 10), ("small", "sm", "s")),
-        ((100, 20), ("medium", "med", "m")),
-        ((140, 35), ("large", "lg", "l")),
-    ]:
-        for name in names:
-            size_presets[name] = dimensions
-
-    if args.size in ("full", "fl", "f"):
-        width, height = shutil.get_terminal_size()
-        height -= 3
-        if args.verbose:
-            height -= 4  # need room for the verbosity output
-        width = max(width, 40)
-        height = max(height, 10)
-    elif args.size in size_presets:
-        width, height = size_presets[args.size]
-
-    # explicit --width/--height override everything
-    if args.width != 0:
-        width = args.width
-    if args.height != 0:
-        height = args.height
-
-    colourised_output = args.color or args.palette != DEFAULT_PALETTE
-
-    settings = Settings(
-        width=width,
-        height=height,
-        histogram_char=args.char,
-        logarithmic=args.logarithmic,
-        verbose=args.verbose,
-        colourised_output=colourised_output,
-        colour_palette=args.palette,
-        tokenize=args.tokenize,
-        match_regexp=args.match,
-        graph_values=args.graph,
-        numeric_mode=args.numonly,
-        max_keys=args.keys,
-    )
-
-    # max_keys was silently floored by __post_init__; report if verbose
-    if args.keys < settings.max_keys and settings.verbose:
-        print(
-            f"Updated max_keys to {settings.max_keys} (height + 3000)",
-            file=sys.stderr,
-        )
-
-    return settings
-
-
-def main() -> None:
-    """Parse arguments, read stdin, and render the histogram."""
-    settings = settings_from_args()
-    stats = Stats()
-
-    try:
-        if settings.graph_values:
-            token_dict = read_pretallied_tokens(settings, stats)
-            write_hist(settings, stats, token_dict)
-        elif settings.numeric_mode is not None:
-            numeric_data = read_numerics(settings, stats)
-            render_numeric_graph(settings, numeric_data)
-        else:
-            token_dict = tokenize_input(settings, stats)
-            write_hist(settings, stats, token_dict)
-    except EmptyInputError as exc:
-        print(f"{exc}! No histogram for you.", file=sys.stderr)
-        sys.exit(255)
+    def convert_arg_line_to_args(self, arg_line: str) -> list[str]:
+        """Return non-empty, non-comment lines from config files."""
+        stripped = arg_line.strip()
+        if stripped and not stripped.startswith("#"):
+            return [stripped]
+        return []
 
 
 if __name__ == "__main__":

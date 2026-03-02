@@ -37,15 +37,18 @@ Tests live in `tests/`: 7 shell-based e2e cases (`stdin.*.txt` vs `*.expected.tx
 
 ## Architecture
 
-Everything lives in `distribution.py` (~740 lines), organized as free functions with a `Settings` dataclass threaded through:
+Everything lives in `distribution.py` (~740 lines), organized in **newspaper style** (most important code first) with free functions and a `Settings` dataclass threaded through. `from __future__ import annotations` enables forward references so definitions can appear in any order. New code should be added within the appropriate section to preserve this layout.
 
-1. **Settings** — Parses `~/.distributionrc` config file and command-line arguments. Manages all display parameters (dimensions, colors, Unicode chars, tokenization regexes). Passed to other functions as shared state.
+1. **`main()`** — Entry point, at the top of the file.
 
-2. **Input functions** — Read stdin in one of three modes:
-   - `tokenize_input()` — splits lines by regex, counts token frequency (includes hash pruning to prevent OOM)
-   - `read_pretallied_tokens()` — reads pre-counted key/value pairs (vk or kv format)
-   - `read_numerics()` — graphs raw numbers or monotonic differences
+2. **Input pipeline** — `tokenize_input()`, `_prune_keys()`, `read_pretallied_tokens()`, `read_numerics()`. Read stdin in one of three modes: split-and-count, pre-tallied key/value pairs, or raw numerics.
 
-3. **Rendering functions** — `write_hist()` renders the histogram; `render_numeric_graph()` handles numeric mode. Support logarithmic scaling, Unicode partial-width characters (1/8 or 1/3 resolution), color palettes via ANSI codes. Headers go to stderr, data to stdout (enabling piping to `sort`).
+3. **Rendering** — `write_hist()`, `_hist_layout()`, `histogram_bar()`, `render_numeric_graph()`. Histogram output with logarithmic scaling, Unicode partial-width characters, and ANSI color palettes. Headers go to stderr, data to stdout.
+
+4. **Data types** — `Stats`, `NumericData`, `HistLayout`, `EmptyInputError`.
+
+5. **Configuration** — `settings_from_args()`, `_parse_args()`, constants, `Settings` dataclass, `_build_parser()`, `DistributionParser`. Parses `~/.distributionrc` and CLI arguments.
+
+6. **`if __name__` guard** — Last line.
 
 **Data flow:** `main()` → Settings init → input function processes stdin into `token_dict` (key→count) or `NumericData` → rendering function sorts deterministically by (value, key) and renders bars.
