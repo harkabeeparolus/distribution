@@ -9,16 +9,22 @@ dev = ["pytest>=8", "mypy", "ruff", "pylint"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 
-[tool.pylint.basic]
-bad-names = ["foo", "baz", "toto", "tutu", "tata"]
+[tool.pylint]
+main.py-version = "3.10"
+main.jobs = 0                       # 0 means all available cores
+design.max-module-lines = 1300      # single-file design is intentional
+main.fail-on = ["useless-suppression"]
+reports.output-format = "colorized"
+basic.bad-names = ["foo", "baz", "toto", "tutu", "tata"]
 
 [tool.pylint."messages_control"]
 disable = [
-    "C0301",  # line-too-long — ruff format handles line length
     "W0511",  # fixme — intentional FIXME comments the author wants to keep
+    "W1203",  # logging-fstring-interpolation — we use f-strings consistently
     "R0902",  # too-many-instance-attributes — Settings is a config class
     "R0903",  # too-few-public-methods — Settings is a data/config class, not an OOP service
 ]
+enable = ["useless-suppression"]
 
 [tool.ruff.lint]
 select = ["ALL"]
@@ -27,6 +33,7 @@ ignore = [
     "D203",    # conflicts with D211
     "D213",    # conflicts with D212
     "E501",    # line length — handled by ruff format
+    "G",       # flake8-logging-format — we use f-strings in logging calls
     "T20",     # print statements — this is a CLI tool
     "TD",      # TODO/FIXME format
 ]
