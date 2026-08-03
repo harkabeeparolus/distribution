@@ -32,7 +32,7 @@ Tests live in `tests/`: 7 shell-based e2e cases (`stdin.*.txt` vs `*.expected.tx
 
 **Test seams** — there is no mocking framework and `capsys` is not used. Pass `stream=`/`stdout=`/`stderr=` to the input and render functions, call `_parse_args(argv, default_rcfile=...)` for the config layer, and set `COLUMNS`/`LINES` via `monkeypatch.setenv` for `--size=full`. Log assertions need `caplog.set_level(logging.DEBUG, logger="distribution")`, because `logging.basicConfig()` runs only inside `main()`.
 
-**Two traps when building test data:** `Settings.__post_init__` floors `max_keys` to `height + 3000`, so a small limit must be assigned after construction (`s = Settings(); s.max_keys = 2`). A hand-built `token_dict` needs `stats.value_sum` set to match, or `write_hist()` divides by zero.
+**Two traps when building test data:** `Settings.__post_init__` floors `max_keys` to `height + 3000`, so a small limit must be assigned after construction (`s = Settings(); s.max_keys = 2`). A hand-built `token_dict` needs `stats.value_sum` set to match, or every row renders as `(0.00%)` — use the `_tallied()` helper in `test_unit.py`.
 
 ## Linting Configuration
 

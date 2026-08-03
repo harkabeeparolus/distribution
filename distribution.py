@@ -213,8 +213,8 @@ def write_hist(  # pylint: disable=too-many-locals
     by key name.  Headers go to stderr; data lines carry no colour prefix
     so output can be piped to sort.
 
-    Requires stats.value_sum to be non-zero, since every row is rendered as
-    a percentage of it.
+    Every row is rendered as a percentage of stats.value_sum; when that is
+    zero, percentages render as 0.00% rather than dividing by zero.
     """
     stdout = stdout or sys.stdout
     stderr = stderr or sys.stderr
@@ -257,7 +257,8 @@ def write_hist(  # pylint: disable=too-many-locals
     keys = list(output_dict)
     for index, key in enumerate(keys):
         output_value = str(output_dict[key])
-        percent = f"({output_dict[key] / stats.value_sum * 100:2.2f}%)"
+        pct = output_dict[key] / stats.value_sum * 100 if stats.value_sum else 0.0
+        percent = f"({pct:2.2f}%)"
         bar = histogram_bar(
             layout.histogram_width,
             max_value,
@@ -292,10 +293,8 @@ def _hist_layout(
     max_token_length = max(len(k) for k in output_dict)
     max_value = max(output_dict.values())
     max_value_width = len(str(max_value))
-    # FIXME: a value_sum of 0 raises ZeroDivisionError here rather than
-    # reporting anything useful, which `echo "0 foo" | distribution -g`
-    # reaches: read_pretallied_tokens sums the values it was handed.
-    max_percent_width = len(f"({max_value / value_sum * 100:2.2f}%)")
+    max_percent = max_value / value_sum * 100 if value_sum else 0.0
+    max_percent_width = len(f"({max_percent:2.2f}%)")
     histogram_width = (
         display_width
         - (max_token_length + 1)

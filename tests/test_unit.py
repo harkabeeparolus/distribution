@@ -40,8 +40,8 @@ def _tokenize(text: str, settings: Settings) -> tuple[Counter[str], Stats]:
 def _tallied(counts: dict[str, int], *, total_objects: int | None = None) -> Stats:
     """Build the Stats a reader would have produced for these counts.
 
-    write_hist() divides by stats.value_sum, so hand-built token dicts must
-    carry a matching value_sum or the percent maths raises ZeroDivisionError.
+    write_hist() renders every row as a percentage of stats.value_sum, so a
+    hand-built token dict needs a matching value_sum or every row reads 0.00%.
     """
     stats = Stats()
     stats.value_sum = sum(counts.values())
@@ -391,16 +391,17 @@ def test_write_hist_colour_placement() -> None:
     assert rows[0].startswith("a\033[0m|")
 
 
-def test_write_hist_zero_value_sum_raises_zero_division() -> None:
-    """A zero value_sum crashes on the percent maths.
+def test_write_hist_zero_value_sum_renders_zero_percent() -> None:
+    """All-zero values render as 0.00% rather than dividing by zero.
 
-    This pins today's behaviour: `echo "0 foo" | distribution.py -g` reaches
-    here, because read_pretallied_tokens sums the values it was given.
+    `echo "0 foo" | distribution.py -g` reaches here, because
+    read_pretallied_tokens sums the values it was given.
     """
     stats = Stats()
     stats.total_objects = 1
-    with pytest.raises(ZeroDivisionError):
-        _write_hist({"foo": 0}, Settings(width=30), stats)
+    stdout, _ = _write_hist({"foo": 0}, Settings(width=30), stats)
+    # max_value is 0, so histogram_bar returns a single minimum-width char
+    assert stdout.splitlines() == ["foo|0 (0.00%) -"]
 
 
 def test_write_hist_logs_summary_stats(caplog: pytest.LogCaptureFixture) -> None:
