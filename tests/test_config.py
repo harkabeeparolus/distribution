@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 import pytest
 
 from distribution import (
+    DEFAULT_KEY_PRUNE_INTERVAL,
     DEFAULT_MAX_KEYS,
     DEFAULT_PALETTE,
     DistributionParser,
@@ -117,6 +118,13 @@ def test_parser_rejects_ambiguous_abbreviation() -> None:
 def test_parser_accepts_unabbreviated_prefixes() -> None:
     """Unambiguous prefixes are accepted, as argparse allows by default."""
     assert _args("--pal=1,2,3,4,5").palette == "1,2,3,4,5"
+
+
+def test_parser_keys_help_reports_the_real_prune_interval() -> None:
+    """The -k help names the interval pruning actually uses, not its own default."""
+    help_text = _build_parser().format_help()
+    assert f"{DEFAULT_KEY_PRUNE_INTERVAL:,}" in help_text
+    assert f"every {DEFAULT_MAX_KEYS}" not in help_text
 
 
 def test_parser_accepts_negative_width() -> None:

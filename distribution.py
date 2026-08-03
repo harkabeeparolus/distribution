@@ -424,6 +424,7 @@ DEFAULT_PALETTE = "0,0,32,35,34"
 DEFAULT_MAX_KEYS = 5000
 DEFAULT_WIDTH = 80
 DEFAULT_HEIGHT = 15
+DEFAULT_KEY_PRUNE_INTERVAL = 1_500_000
 PALETTE_FIELDS = 5  # regular, key, count, percent, graph
 SIZE_PRESETS: dict[str, tuple[int, int]] = {
     name: dimensions
@@ -547,7 +548,7 @@ class Settings:
     numeric_mode: str = ""
     max_keys: int = DEFAULT_MAX_KEYS
     stat_interval: float = 1.0
-    key_prune_interval: int = 1500000
+    key_prune_interval: int = DEFAULT_KEY_PRUNE_INTERVAL
 
     def __post_init__(self) -> None:
         """Resolve aliases, histogram char, colours, and max_keys floor."""
@@ -717,10 +718,10 @@ def _build_parser() -> DistributionParser:
         type=int,
         default=DEFAULT_MAX_KEYS,
         metavar="K",
-        # FIXME: the first %(default)s renders this option's own default, so the
-        # help claims pruning happens every 5000 values. The real interval is
-        # Settings.key_prune_interval (1,500,000), which has no CLI option.
-        help="prune hash to K keys every %(default)s values (default: %(default)s)",
+        # the interval is Settings.key_prune_interval, not this option's own
+        # default, so it is interpolated here rather than left to %(default)s
+        help=f"prune hash to K keys every {DEFAULT_KEY_PRUNE_INTERVAL:,}"
+        " matched tokens (default: %(default)s)",
     )
     parser.add_argument(
         "-c",
