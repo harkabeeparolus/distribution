@@ -4,7 +4,13 @@ version = "0.1.0"
 requires-python = ">=3.10"
 
 [dependency-groups]
-dev = ["pytest>=8", "mypy", "ruff", "pylint"]
+dev = [
+    "pytest>=8",
+    "mypy",
+    "ruff",
+    "pylint",
+    "ty>=0.0.65",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -12,8 +18,8 @@ testpaths = ["tests"]
 [tool.pylint]
 main.py-version = "3.10"
 main.jobs = 0                       # 0 means all available cores
-design.max-module-lines = 1300      # single-file design is intentional
 main.fail-on = ["useless-suppression"]
+design.max-module-lines = 1300      # single-file design is intentional
 reports.output-format = "colorized"
 basic.bad-names = ["foo", "baz", "toto", "tutu", "tata"]
 

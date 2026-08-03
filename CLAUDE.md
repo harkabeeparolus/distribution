@@ -32,8 +32,12 @@ Tests live in `tests/`: 7 shell-based e2e cases (`stdin.*.txt` vs `*.expected.tx
 
 ## Linting Configuration
 
-- **ruff format**: configured in `.ruff.toml`, selects ALL rules and then disables some of them
-- **direnv** (`.envrc`): sets `PYTHONDEVMODE=1` and `PYTHONWARNDEFAULTENCODING=1`
+All tool config lives in `pyproject.toml` — there are no per-tool config files.
+
+- **ruff** (`[tool.ruff.lint]`): selects ALL rules, then disables a handful; `[tool.ruff.lint.per-file-ignores]` relaxes `INP001` and `S` for `tests/`
+- **pylint** (`[tool.pylint]`, `[tool.pylint."messages_control"]`): raises `max-module-lines` because the single-file design is intentional, and fails on `useless-suppression` so stale `# pylint: disable` comments get caught
+- **pytest** (`[tool.pytest.ini_options]`): `testpaths = ["tests"]`
+- **direnv**: `.envrc` is gitignored, so it's a local-only convention rather than part of the repo. Setting `PYTHONDEVMODE=1` and `PYTHONWARNDEFAULTENCODING=1` there is useful for surfacing encoding warnings; note the `Justfile` deliberately clears `PYTHONWARNDEFAULTENCODING` so it doesn't leak into the tool runs.
 
 ## Architecture
 
