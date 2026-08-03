@@ -277,6 +277,12 @@ def test_settings_from_args_defaults() -> None:
     assert (settings.width, settings.height) == (80, 15)
 
 
+def test_settings_from_args_defaults_match_the_settings_fields() -> None:
+    """The argument layer and the dataclass agree on the default dimensions."""
+    settings = settings_from_args(_args())
+    assert (settings.width, settings.height) == (Settings().width, Settings().height)
+
+
 @pytest.mark.parametrize(
     ("size", "expected"),
     [

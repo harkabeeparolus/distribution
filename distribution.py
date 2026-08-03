@@ -422,6 +422,8 @@ class EmptyInputError(Exception):
 DEFAULT_RCFILE = "~/.distributionrc"
 DEFAULT_PALETTE = "0,0,32,35,34"
 DEFAULT_MAX_KEYS = 5000
+DEFAULT_WIDTH = 80
+DEFAULT_HEIGHT = 15
 PALETTE_FIELDS = 5  # regular, key, count, percent, graph
 SIZE_PRESETS: dict[str, tuple[int, int]] = {
     name: dimensions
@@ -439,9 +441,8 @@ PARTIAL_LINES = ("╸", "╾", "━")  # char=pl
 
 def settings_from_args(args: argparse.Namespace) -> Settings:
     """Create Settings from command-line arguments and config file."""
-    # TODO: these duplicate the Settings field defaults; the two can drift.
-    width = 80
-    height = 15
+    width = DEFAULT_WIDTH
+    height = DEFAULT_HEIGHT
 
     # the parser's choices= has already rejected any other non-empty --size
     if args.size in FULL_SIZE_ALIASES:
@@ -526,8 +527,8 @@ def _parse_args(
 class Settings:
     """Display parameters for histogram rendering."""
 
-    width: int = 80
-    height: int = 15
+    width: int = DEFAULT_WIDTH
+    height: int = DEFAULT_HEIGHT
     histogram_char: str = "-"
     char_width: float = 1.0
     graph_chars: list[str] = field(default_factory=list)
