@@ -208,17 +208,6 @@ def test_settings_colours_are_not_validated() -> None:
     assert settings.graph_colour == "\033[em"
 
 
-@pytest.mark.parametrize("palette", ["1,2,3", "1,2,3,4,5,6", ""])
-def test_settings_colours_reject_wrong_field_count(palette: str) -> None:
-    """A palette without exactly five fields raises an uncaught ValueError.
-
-    This pins today's behaviour: the tuple unpack in _resolve_colours() is
-    unguarded, so the user sees a traceback rather than a usage error.
-    """
-    with pytest.raises(ValueError, match="expected 5"):
-        Settings(colour_palette=palette, colourised_output=True)
-
-
 # --- Settings histogram character ---
 
 
@@ -468,6 +457,30 @@ def test_parser_error_with_rcfile_path(capsys: pytest.CaptureFixture[str]) -> No
     assert excinfo.value.code == 2
     err = capsys.readouterr().err
     assert "dist: error: in /etc/distributionrc: something broke" in err
+
+
+@pytest.mark.parametrize("palette", ["1,2,3", "1,2,3,4,5,6", ""])
+def test_parser_rejects_palette_without_five_fields(
+    palette: str,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A palette must name exactly five colours to be usable."""
+    with pytest.raises(SystemExit) as excinfo:
+        _args(f"--palette={palette}")
+    assert excinfo.value.code == 2
+    assert "argument -p/--palette" in capsys.readouterr().err
+
+
+def test_parser_palette_error_in_rcfile_names_the_file(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A bad palette in the rcfile is reported against that file."""
+    rcfile = _write_rcfile(tmp_path, "--palette=1,2,3")
+    with pytest.raises(SystemExit) as excinfo:
+        _parse_args([], default_rcfile=str(rcfile))
+    assert excinfo.value.code == 2
+    assert f"error: in {rcfile}: argument -p/--palette" in capsys.readouterr().err
 
 
 # --- rcfile discovery and layering ---

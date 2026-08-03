@@ -422,6 +422,7 @@ class EmptyInputError(Exception):
 DEFAULT_RCFILE = "~/.distributionrc"
 DEFAULT_PALETTE = "0,0,32,35,34"
 DEFAULT_MAX_KEYS = 5000
+PALETTE_FIELDS = 5  # regular, key, count, percent, graph
 PARTIAL_BLOCKS = ("▏", "▎", "▍", "▌", "▋", "▊", "▉", "█")  # char=pb
 PARTIAL_LINES = ("╸", "╾", "━")  # char=pl
 
@@ -576,9 +577,7 @@ class Settings:
             # the literal characters, and NN is a two-digit number, typically
             # from 31 to 37 - why is this knowledge still useful in 2014?
             colours = [f"\033[{code}m" for code in colours]
-            # FIXME: this unpack needs exactly five fields, so a short or long
-            # --palette escapes as an uncaught ValueError traceback. It should
-            # be validated and reported as a usage error instead.
+            # _palette_arg() has already rejected any other field count
             (
                 self.regular_colour,
                 self.key_colour,
@@ -609,6 +608,14 @@ class Settings:
         elif self.histogram_char == "pl":
             self.char_width = 0.3334
             self.graph_chars = list(PARTIAL_LINES)
+
+
+def _palette_arg(value: str) -> str:
+    """Reject a palette that does not name exactly five colours."""
+    if len(value.split(",")) != PALETTE_FIELDS:
+        msg = f"expected {PALETTE_FIELDS} comma-separated colours: {value!r}"
+        raise argparse.ArgumentTypeError(msg)
+    return value
 
 
 def _build_parser() -> DistributionParser:
@@ -714,6 +721,7 @@ def _build_parser() -> DistributionParser:
     parser.add_argument(
         "-p",
         "--palette",
+        type=_palette_arg,
         default=DEFAULT_PALETTE,
         metavar="P",
         help="comma-separated ANSI colour values: regular,key,count,pct,graph\nimplies --color",
