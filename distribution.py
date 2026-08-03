@@ -423,6 +423,16 @@ DEFAULT_RCFILE = "~/.distributionrc"
 DEFAULT_PALETTE = "0,0,32,35,34"
 DEFAULT_MAX_KEYS = 5000
 PALETTE_FIELDS = 5  # regular, key, count, percent, graph
+SIZE_PRESETS: dict[str, tuple[int, int]] = {
+    name: dimensions
+    for dimensions, names in [
+        ((60, 10), ("small", "sm", "s")),
+        ((100, 20), ("medium", "med", "m")),
+        ((140, 35), ("large", "lg", "l")),
+    ]
+    for name in names
+}
+FULL_SIZE_ALIASES = ("full", "fl", "f")
 PARTIAL_BLOCKS = ("▏", "▎", "▍", "▌", "▋", "▊", "▉", "█")  # char=pb
 PARTIAL_LINES = ("╸", "╾", "━")  # char=pl
 
@@ -432,28 +442,17 @@ def settings_from_args(args: argparse.Namespace) -> Settings:
     # TODO: these duplicate the Settings field defaults; the two can drift.
     width = 80
     height = 15
-    size_presets: dict[str, tuple[int, int]] = {
-        name: dimensions
-        for dimensions, names in [
-            ((60, 10), ("small", "sm", "s")),
-            ((100, 20), ("medium", "med", "m")),
-            ((140, 35), ("large", "lg", "l")),
-        ]
-        for name in names
-    }
 
-    if args.size in {"full", "fl", "f"}:
+    # the parser's choices= has already rejected any other non-empty --size
+    if args.size in FULL_SIZE_ALIASES:
         width, height = shutil.get_terminal_size()
         height -= 3
         if args.verbose:
             height -= 4  # need room for the verbosity output
         width = max(width, 40)
         height = max(height, 10)
-    elif args.size in size_presets:
-        width, height = size_presets[args.size]
-    # FIXME: an unrecognised --size (e.g. --size=bogus) is silently ignored
-    # and falls through to the 80x15 defaults. It should be a usage error,
-    # either here or via choices= on the argument.
+    elif args.size in SIZE_PRESETS:
+        width, height = SIZE_PRESETS[args.size]
 
     # explicit --width/--height override everything
     if args.width:
@@ -729,6 +728,7 @@ def _build_parser() -> DistributionParser:
     parser.add_argument(
         "-s",
         "--size",
+        choices=(*SIZE_PRESETS, *FULL_SIZE_ALIASES),
         default="",
         metavar="S",
         help="size of histogram, overridden by --width/--height:\n"

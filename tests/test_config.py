@@ -296,15 +296,6 @@ def test_settings_from_args_size_presets(size: str, expected: tuple[int, int]) -
     assert (settings.width, settings.height) == expected
 
 
-def test_settings_from_args_unknown_size_is_ignored() -> None:
-    """An unrecognised --size silently falls back to the 80x15 default.
-
-    This pins today's behaviour: there is no validation of --size.
-    """
-    settings = settings_from_args(_args("--size=bogus"))
-    assert (settings.width, settings.height) == (80, 15)
-
-
 def test_settings_from_args_size_full(monkeypatch: pytest.MonkeyPatch) -> None:
     """size=full takes the terminal size, reserving 3 lines for headers."""
     monkeypatch.setenv("COLUMNS", "150")
@@ -457,6 +448,18 @@ def test_parser_error_with_rcfile_path(capsys: pytest.CaptureFixture[str]) -> No
     assert excinfo.value.code == 2
     err = capsys.readouterr().err
     assert "dist: error: in /etc/distributionrc: something broke" in err
+
+
+@pytest.mark.parametrize("size", ["bogus", "larg", "xl"])
+def test_parser_rejects_unknown_size(
+    size: str,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """An unrecognised --size is a usage error, not a silent fallback."""
+    with pytest.raises(SystemExit) as excinfo:
+        _args(f"--size={size}")
+    assert excinfo.value.code == 2
+    assert "argument -s/--size: invalid choice" in capsys.readouterr().err
 
 
 @pytest.mark.parametrize("palette", ["1,2,3", "1,2,3,4,5,6", ""])
