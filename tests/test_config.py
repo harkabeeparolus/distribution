@@ -42,7 +42,8 @@ def test_parser_defaults() -> None:
     """Every option has the documented default when argv is empty."""
     assert vars(_args()) == {
         "rcfile": None,
-        "color": False,
+        # None, not False: an unasked-for colour still yields to --palette
+        "color": None,
         "graph": "",
         "logarithmic": False,
         "numonly": "",
@@ -360,6 +361,12 @@ def test_settings_from_args_palette_equal_to_default_does_not_imply_colour() -> 
     assert settings.colourised_output is False
 
 
+def test_settings_from_args_no_colour_overrides_custom_palette() -> None:
+    """An explicit --no-color refuses colour a custom palette would imply."""
+    settings = settings_from_args(_args("--no-color", "--palette=0,31,33,35,37"))
+    assert settings.colourised_output is False
+
+
 def test_settings_from_args_maps_renamed_fields() -> None:
     """Namespace names are mapped onto their differently-named Settings fields."""
     settings = settings_from_args(
@@ -568,17 +575,26 @@ def test_parse_args_rcfile_ignores_comments_and_blank_lines(tmp_path: Path) -> N
     assert args.char == "Z"
 
 
-def test_parse_args_rcfile_boolean_flags_cannot_be_disabled(tmp_path: Path) -> None:
-    """A store_true flag set in the rcfile cannot be turned off from the CLI.
-
-    This pins today's behaviour: the flags have no --no-* counterpart, so
-    once the rcfile enables one there is no argv that clears it.
-    """
+def test_parse_args_rcfile_boolean_flags_survive_unrelated_args(
+    tmp_path: Path,
+) -> None:
+    """Flags enabled in the rcfile stay on when argv does not mention them."""
     rcfile = _write_rcfile(tmp_path, "--color", "--logarithmic", "--verbose")
     args = _parse_args(["--char=Q"], default_rcfile=str(rcfile))
     assert args.color is True
     assert args.logarithmic is True
     assert args.verbose is True
+
+
+def test_parse_args_cli_can_disable_rcfile_boolean_flags(tmp_path: Path) -> None:
+    """The --no-* forms turn off flags the rcfile enabled."""
+    rcfile = _write_rcfile(tmp_path, "--color", "--logarithmic", "--verbose")
+    args = _parse_args(
+        ["--no-color", "--no-logarithmic", "--no-verbose"], default_rcfile=str(rcfile)
+    )
+    assert args.color is False
+    assert args.logarithmic is False
+    assert args.verbose is False
 
 
 def test_parse_args_rcfile_supports_nested_includes(tmp_path: Path) -> None:

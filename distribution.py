@@ -460,7 +460,10 @@ def settings_from_args(args: argparse.Namespace) -> Settings:
     if args.height:
         height = args.height
 
-    colourised_output = args.color or args.palette != DEFAULT_PALETTE
+    # an explicit --color/--no-color wins; otherwise a custom palette implies it
+    colourised_output = (
+        args.color if args.color is not None else args.palette != DEFAULT_PALETTE
+    )
 
     settings = Settings(
         width=width,
@@ -644,11 +647,16 @@ def _build_parser() -> DistributionParser:
         help=f"use this rcfile instead of {DEFAULT_RCFILE}\n"
         "  --rcfile=   read no rcfile at all",
     )
-    # TODO: the store_true flags below (--color, --logarithmic, --verbose) have
-    # no negative form, so once an rcfile enables one there is no command line
-    # that turns it back off. argparse.BooleanOptionalAction would add --no-*.
+    # BooleanOptionalAction gives each flag a --no-* form, so an rcfile that
+    # enables one can still be overridden from the command line.
     parser.add_argument(
-        "--color", "--colour", action="store_true", help="colourise the output"
+        "--color",
+        "--colour",
+        action=argparse.BooleanOptionalAction,
+        # None distinguishes "not asked for" from an explicit --no-color, which
+        # must beat the colour a non-default --palette would otherwise imply
+        default=None,
+        help="colourise the output",
     )
     parser.add_argument(
         "-g",
@@ -662,7 +670,11 @@ def _build_parser() -> DistributionParser:
         "  vk   input is ordered value then key",
     )
     parser.add_argument(
-        "-l", "--logarithmic", action="store_true", help="logarithmic graph"
+        "-l",
+        "--logarithmic",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="logarithmic graph",
     )
     parser.add_argument(
         "-n",
@@ -675,7 +687,13 @@ def _build_parser() -> DistributionParser:
         "  actual   input is just values (default)\n"
         "  diff     input monotonically-increasing, graph differences",
     )
-    parser.add_argument("-v", "--verbose", action="store_true", help="be verbose")
+    parser.add_argument(
+        "-v",
+        "--verbose",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="be verbose",
+    )
     parser.add_argument(
         "-w",
         "--width",
