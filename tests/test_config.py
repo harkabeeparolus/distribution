@@ -528,14 +528,11 @@ def test_parse_args_default_rcfile_is_applied(tmp_path: Path) -> None:
     assert args.width == 42
 
 
-def test_parse_args_empty_rcfile_option_falls_back_to_default(tmp_path: Path) -> None:
-    """--rcfile= is treated as unset rather than as an error.
-
-    This pins today's behaviour: the option is only honoured when truthy.
-    """
+def test_parse_args_empty_rcfile_option_disables_rcfile(tmp_path: Path) -> None:
+    """--rcfile= skips rcfile loading entirely, leaving parser defaults."""
     rcfile = _write_rcfile(tmp_path, "--char=Z")
     args = _parse_args(["--rcfile="], default_rcfile=str(rcfile))
-    assert args.char == "Z"
+    assert args.char == "-"
 
 
 def test_parse_args_explicit_rcfile_is_applied(tmp_path: Path) -> None:

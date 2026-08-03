@@ -491,10 +491,11 @@ def _parse_args(
 ) -> argparse.Namespace:
     """Two-pass parse: discover --rcfile from argv, then re-parse with rcfile defaults.
 
-    If --rcfile is given, use that file; otherwise fall back to
-    default_rcfile.  The rcfile is read as a set of defaults that
-    CLI arguments override.  argv defaults to sys.argv[1:]; both
-    parameters exist so callers (and tests) need not touch global state.
+    If --rcfile is given, use that file; if it is given but empty, load no
+    rcfile at all; otherwise fall back to default_rcfile.  The rcfile is
+    read as a set of defaults that CLI arguments override.  argv defaults
+    to sys.argv[1:]; both parameters exist so callers (and tests) need not
+    touch global state.
     """
     # Two passes are inherent: we must read CLI args to learn the rcfile path
     # before we can load its defaults underneath.
@@ -502,8 +503,8 @@ def _parse_args(
 
     # Pass 1: discover which rcfile to load.
     cli_args = parser.parse_args(argv)
-    # FIXME: an empty --rcfile= is falsy, so it silently falls back to
-    # default_rcfile rather than reporting that no path was given.
+    if cli_args.rcfile == "":
+        return cli_args  # an empty --rcfile= asks for no rcfile at all
     rcfile = Path(cli_args.rcfile or default_rcfile).expanduser()
 
     if not rcfile.is_file():
@@ -640,7 +641,8 @@ def _build_parser() -> DistributionParser:
         "--rcfile",
         default=None,
         metavar="F",
-        help=f"use this rcfile instead of {DEFAULT_RCFILE}",
+        help=f"use this rcfile instead of {DEFAULT_RCFILE}\n"
+        "  --rcfile=   read no rcfile at all",
     )
     # TODO: the store_true flags below (--color, --logarithmic, --verbose) have
     # no negative form, so once an rcfile enables one there is no command line
