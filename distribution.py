@@ -244,7 +244,7 @@ def write_hist(  # pylint: disable=too-many-locals
     logger.debug(f"       histogram keys: {len(token_dict):,d}")
     logger.debug(f"              runtime: {elapsed_ms:,.2f}ms")
 
-    # compute layout widths from the highest-frequency entry
+    # compute layout widths from the highest count
     layout = _hist_layout(output_dict, stats.value_sum, settings.width)
 
     print(
@@ -286,19 +286,16 @@ def _hist_layout(
 ) -> HistLayout:
     """Compute column widths from the filtered output dict.
 
-    output_dict must be non-empty and ordered by descending count, since the
-    count and percentage columns are sized from its first value alone.
-
-    TODO: take max(output_dict.values()) instead of trusting the ordering; an
-    unordered dict silently gets columns too narrow for its widest count.
+    output_dict must be non-empty; the count and percentage columns are sized
+    from its largest value, so any ordering is safe.
     """
     max_token_length = max(len(k) for k in output_dict)
-    first_value = next(iter(output_dict.values()))
-    max_value_width = len(str(first_value))
+    max_value = max(output_dict.values())
+    max_value_width = len(str(max_value))
     # FIXME: a value_sum of 0 raises ZeroDivisionError here rather than
     # reporting anything useful, which `echo "0 foo" | distribution -g`
     # reaches: read_pretallied_tokens sums the values it was handed.
-    max_percent_width = len(f"({first_value / value_sum * 100:2.2f}%)")
+    max_percent_width = len(f"({max_value / value_sum * 100:2.2f}%)")
     histogram_width = (
         display_width
         - (max_token_length + 1)

@@ -419,7 +419,7 @@ def test_write_hist_logs_summary_stats(caplog: pytest.LogCaptureFixture) -> None
 
 
 def test_hist_layout_column_widths() -> None:
-    """Column widths come from the widest key and the first (largest) count."""
+    """Column widths come from the widest key and the largest count."""
     layout = _hist_layout({"bb": 21, "a": 7}, 28, 80)
     # "(75.00%)" is 8 wide; 80 - (2+1) - (2+1) - (8+1) - 1 = 64
     assert layout == HistLayout(
@@ -430,14 +430,12 @@ def test_hist_layout_column_widths() -> None:
     )
 
 
-def test_hist_layout_takes_count_width_from_first_value() -> None:
-    """The count column is sized from the first value, not the largest.
-
-    This pins the assumption that callers pass a dict already ordered by
-    descending count; an unordered dict gets a too-narrow count column.
-    """
+def test_hist_layout_takes_count_width_from_largest_value() -> None:
+    """Column widths come from the largest count, whatever the dict order."""
     layout = _hist_layout({"a": 5, "bbb": 1000}, 1005, 80)
-    assert layout.max_value_width == 1
+    assert layout.max_value_width == len("1000")
+    # 1000/1005 renders as "(99.50%)", 8 wide
+    assert layout.max_percent_width == 8
 
 
 def test_hist_layout_allows_negative_histogram_width() -> None:
