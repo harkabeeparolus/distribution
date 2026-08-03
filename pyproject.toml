@@ -40,6 +40,7 @@ ignore = [
     "D203",    # conflicts with D211
     "D213",    # conflicts with D212
     "E501",    # line length — handled by ruff format
+    "FIX",     # TODO/FIXME comments — known limitations are documented in place
     "G",       # flake8-logging-format — we use f-strings in logging calls
     "T20",     # print statements — this is a CLI tool
     "TD",      # TODO/FIXME format

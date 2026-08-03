@@ -212,6 +212,9 @@ def write_hist(  # pylint: disable=too-many-locals
     Sorts by (count, key) descending so ties are broken deterministically
     by key name.  Headers go to stderr; data lines carry no colour prefix
     so output can be piped to sort.
+
+    Requires stats.value_sum to be non-zero, since every row is rendered as
+    a percentage of it.
     """
     stdout = stdout or sys.stdout
     stderr = stderr or sys.stderr
@@ -262,7 +265,7 @@ def write_hist(  # pylint: disable=too-many-locals
             settings,
         )
         # last line resets to regular_colour; all others continue key_colour.
-        # FIXME: even with these colour-placement antics, one key will  # noqa: FIX001
+        # FIXME: even with these colour-placement antics, one key will
         # still be printed with the wrong colour on sorted output most
         # of the time. The only real fix would be to sort within the
         # script itself.
@@ -281,10 +284,20 @@ def write_hist(  # pylint: disable=too-many-locals
 def _hist_layout(
     output_dict: dict[str, int], value_sum: int, display_width: int
 ) -> HistLayout:
-    """Compute column widths from the filtered output dict."""
+    """Compute column widths from the filtered output dict.
+
+    output_dict must be non-empty and ordered by descending count, since the
+    count and percentage columns are sized from its first value alone.
+
+    TODO: take max(output_dict.values()) instead of trusting the ordering; an
+    unordered dict silently gets columns too narrow for its widest count.
+    """
     max_token_length = max(len(k) for k in output_dict)
     first_value = next(iter(output_dict.values()))
     max_value_width = len(str(first_value))
+    # FIXME: a value_sum of 0 raises ZeroDivisionError here rather than
+    # reporting anything useful, which `echo "0 foo" | distribution -g`
+    # reaches: read_pretallied_tokens sums the values it was handed.
     max_percent_width = len(f"({first_value / value_sum * 100:2.2f}%)")
     histogram_width = (
         display_width
@@ -335,7 +348,7 @@ def histogram_bar(
 
     bar += zero_char * integer_width
 
-    # FIXME: The remainder partial char printed does not take into  # noqa: FIX001
+    # FIXME: The remainder partial char printed does not take into
     # account logarithmic scale (can humans notice?).
     if settings.char_width == 1:
         bar += one_char
@@ -419,6 +432,7 @@ PARTIAL_LINES = ("╸", "╾", "━")  # char=pl
 
 def settings_from_args(args: argparse.Namespace) -> Settings:
     """Create Settings from command-line arguments and config file."""
+    # TODO: these duplicate the Settings field defaults; the two can drift.
     width = 80
     height = 15
     size_presets: dict[str, tuple[int, int]] = {
@@ -440,6 +454,9 @@ def settings_from_args(args: argparse.Namespace) -> Settings:
         height = max(height, 10)
     elif args.size in size_presets:
         width, height = size_presets[args.size]
+    # FIXME: an unrecognised --size (e.g. --size=bogus) is silently ignored
+    # and falls through to the 80x15 defaults. It should be a usage error,
+    # either here or via choices= on the argument.
 
     # explicit --width/--height override everything
     if args.width:
@@ -489,6 +506,8 @@ def _parse_args(
 
     # Pass 1: discover which rcfile to load.
     cli_args = parser.parse_args(argv)
+    # FIXME: an empty --rcfile= is falsy, so it silently falls back to
+    # default_rcfile rather than reporting that no path was given.
     rcfile = Path(cli_args.rcfile or default_rcfile).expanduser()
 
     if not rcfile.is_file():
@@ -561,6 +580,9 @@ class Settings:
             # the literal characters, and NN is a two-digit number, typically
             # from 31 to 37 - why is this knowledge still useful in 2014?
             colours = [f"\033[{code}m" for code in colours]
+            # FIXME: this unpack needs exactly five fields, so a short or long
+            # --palette escapes as an uncaught ValueError traceback. It should
+            # be validated and reported as a usage error instead.
             (
                 self.regular_colour,
                 self.key_colour,
@@ -618,6 +640,9 @@ def _build_parser() -> DistributionParser:
         metavar="F",
         help=f"use this rcfile instead of {DEFAULT_RCFILE}",
     )
+    # TODO: the store_true flags below (--color, --logarithmic, --verbose) have
+    # no negative form, so once an rcfile enables one there is no command line
+    # that turns it back off. argparse.BooleanOptionalAction would add --no-*.
     parser.add_argument(
         "--color", "--colour", action="store_true", help="colourise the output"
     )
@@ -669,6 +694,9 @@ def _build_parser() -> DistributionParser:
         type=int,
         default=DEFAULT_MAX_KEYS,
         metavar="K",
+        # FIXME: the first %(default)s renders this option's own default, so the
+        # help claims pruning happens every 5000 values. The real interval is
+        # Settings.key_prune_interval (1,500,000), which has no CLI option.
         help="prune hash to K keys every %(default)s values (default: %(default)s)",
     )
     parser.add_argument(
