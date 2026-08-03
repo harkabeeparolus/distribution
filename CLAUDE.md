@@ -28,7 +28,7 @@ just typing   # ty check, mypy --strict
 ./runTests.sh
 ```
 
-Tests live in `tests/`: 7 shell-based e2e cases (`stdin.*.txt` vs `*.expected.txt`) wrapped by `test_e2e.py`, plus unit tests in `test_unit.py`.
+Tests live in `tests/`: 7 shell-based e2e cases (`stdin.*.txt` vs `*.expected.txt`) wrapped by `test_e2e.py`, plus unit tests for the input/render functions in `test_unit.py` and for the configuration layer in `test_config.py`. Tests are plain functions grouped by `# --- banner ---` comments, not classes. `pythonpath = ["."]` in the pytest config makes `import distribution` work, so no `sys.path` manipulation is needed.
 
 ## Linting Configuration
 

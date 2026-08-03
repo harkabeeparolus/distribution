@@ -22,14 +22,17 @@ import time
 from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import NamedTuple, NoReturn, TextIO
+from typing import TYPE_CHECKING, NamedTuple, NoReturn, TextIO
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
 
 logger = logging.getLogger(__name__)
 
 
-def main() -> None:
+def main(argv: Sequence[str] | None = None) -> None:
     """Parse arguments, read stdin, and render the histogram."""
-    args = _parse_args()
+    args = _parse_args(argv)
     logging.basicConfig(
         level=logging.DEBUG if args.verbose else logging.WARNING,
         format="%(message)s",
@@ -407,6 +410,13 @@ class EmptyInputError(Exception):
     """Raised when there is no data to display."""
 
 
+DEFAULT_RCFILE = "~/.distributionrc"
+DEFAULT_PALETTE = "0,0,32,35,34"
+DEFAULT_MAX_KEYS = 5000
+PARTIAL_BLOCKS = ("▏", "▎", "▍", "▌", "▋", "▊", "▉", "█")  # char=pb
+PARTIAL_LINES = ("╸", "╾", "━")  # char=pl
+
+
 def settings_from_args(args: argparse.Namespace) -> Settings:
     """Create Settings from command-line arguments and config file."""
     width = 80
@@ -461,24 +471,25 @@ def settings_from_args(args: argparse.Namespace) -> Settings:
     return settings
 
 
-def _parse_args() -> argparse.Namespace:
-    """Two-pass parse: discover --rcfile from CLI, then re-parse with rcfile defaults.
+def _parse_args(
+    argv: Sequence[str] | None = None,
+    *,
+    default_rcfile: str = DEFAULT_RCFILE,
+) -> argparse.Namespace:
+    """Two-pass parse: discover --rcfile from argv, then re-parse with rcfile defaults.
 
     If --rcfile is given, use that file; otherwise fall back to
-    ~/.distributionrc.  The rcfile is read as a set of defaults that
-    CLI arguments override.
+    default_rcfile.  The rcfile is read as a set of defaults that
+    CLI arguments override.  argv defaults to sys.argv[1:]; both
+    parameters exist so callers (and tests) need not touch global state.
     """
     # Two passes are inherent: we must read CLI args to learn the rcfile path
     # before we can load its defaults underneath.
     parser = _build_parser()
 
     # Pass 1: discover which rcfile to load.
-    cli_args = parser.parse_args()
-    rcfile = (
-        Path(cli_args.rcfile).expanduser()
-        if cli_args.rcfile
-        else Path.home() / ".distributionrc"
-    )
+    cli_args = parser.parse_args(argv)
+    rcfile = Path(cli_args.rcfile or default_rcfile).expanduser()
 
     if not rcfile.is_file():
         if cli_args.rcfile:
@@ -489,13 +500,7 @@ def _parse_args() -> argparse.Namespace:
     parser.rcfile_path = str(rcfile)
     rcfile_defaults = parser.parse_args([f"@{rcfile}"])
     parser.rcfile_path = ""
-    return parser.parse_args(namespace=rcfile_defaults)
-
-
-DEFAULT_PALETTE = "0,0,32,35,34"
-DEFAULT_MAX_KEYS = 5000
-PARTIAL_BLOCKS = ("▏", "▎", "▍", "▌", "▋", "▊", "▉", "█")  # char=pb
-PARTIAL_LINES = ("╸", "╾", "━")  # char=pl
+    return parser.parse_args(argv, namespace=rcfile_defaults)
 
 
 @dataclass
@@ -611,7 +616,7 @@ def _build_parser() -> DistributionParser:
         "--rcfile",
         default=None,
         metavar="F",
-        help="use this rcfile instead of ~/.distributionrc",
+        help=f"use this rcfile instead of {DEFAULT_RCFILE}",
     )
     parser.add_argument(
         "--color", "--colour", action="store_true", help="colourise the output"
